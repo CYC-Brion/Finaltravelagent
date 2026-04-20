@@ -3,13 +3,16 @@ import { ArrowRight, ArrowLeft, Globe, MapPin, Calendar, DollarSign, Users, Mail
 import { DatePickerInput } from "../components/helloworld/DatePickerInput";
 import { ShareOptionsPanel } from "../components/helloworld/ShareOptionsPanel";
 import { BudgetRangeInput } from "../components/helloworld/BudgetRangeInput";
+import type { CreateTripInput } from "@/domain/types";
 
 interface TripWizardProps {
-  onComplete: () => void;
+  onComplete?: () => void;
+  onSubmit?: (data: CreateTripInput) => void | Promise<void>;
   onBack: () => void;
+  submitting?: boolean;
 }
 
-export function TripWizard({ onComplete, onBack }: TripWizardProps) {
+export function TripWizard({ onComplete, onSubmit, onBack, submitting = false }: TripWizardProps) {
   const [step, setStep] = useState(1);
   const [tripData, setTripData] = useState({
     name: "",
@@ -313,7 +316,7 @@ export function TripWizard({ onComplete, onBack }: TripWizardProps) {
               </div>
 
               {/* AI Summary Preview */}
-              {tripData.budget && tripData.pace && tripData.interests.length > 0 && (
+              {tripData.budgetMin && tripData.budgetMax && tripData.pace && tripData.interests.length > 0 && (
                 <div className="bg-gradient-to-br from-purple-50 via-pink-50 to-purple-50 rounded-2xl p-8 border border-purple-200">
                   <div className="flex items-start gap-4 mb-6">
                     <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center shrink-0">
@@ -373,11 +376,30 @@ export function TripWizard({ onComplete, onBack }: TripWizardProps) {
             </button>
           ) : (
             <button
-              onClick={onComplete}
-              disabled={!canProceed()}
+              onClick={async () => {
+                const payload: CreateTripInput = {
+                  name: tripData.name,
+                  destination: tripData.destination,
+                  startDate: tripData.startDate,
+                  endDate: tripData.endDate,
+                  members: tripData.members,
+                  budgetMin: Number(tripData.budgetMin),
+                  budgetMax: Number(tripData.budgetMax),
+                  pace: tripData.pace,
+                  interests: tripData.interests,
+                };
+
+                if (onSubmit) {
+                  await onSubmit(payload);
+                  return;
+                }
+
+                onComplete?.();
+              }}
+              disabled={!canProceed() || submitting}
               className="px-8 py-3 bg-primary text-primary-foreground rounded-lg font-semibold hover:bg-primary-600 transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed shadow-sm"
             >
-              Generate AI Draft
+              {submitting ? "Creating Trip..." : "Generate AI Draft"}
               <Sparkles className="w-5 h-5" />
             </button>
           )}

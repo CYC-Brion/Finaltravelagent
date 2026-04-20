@@ -1,89 +1,69 @@
-import { ArrowRight, Globe, MapPin, Clock, DollarSign, Users, Sparkles, RefreshCw, Download, Check, TrendingDown } from "lucide-react";
-import { useState } from "react";
+import {
+  ArrowRight,
+  Check,
+  Clock,
+  DollarSign,
+  Download,
+  Globe,
+  MapPin,
+  RefreshCw,
+  Sparkles,
+  TrendingDown,
+  Users,
+} from "lucide-react";
+import { useMemo, useState } from "react";
+import type { AiDraftData, Trip } from "@/domain/types";
 
 interface AIDraftProps {
   onContinue: () => void;
+  onRegenerate?: () => void;
+  onSuggestionResponse?: (suggestionId: string, response: "accepted" | "dismissed") => void;
+  trip?: Trip;
+  draftData?: AiDraftData;
+  generating?: boolean;
 }
 
-export function AIDraft({ onContinue }: AIDraftProps) {
+export function AIDraft({
+  onContinue,
+  onRegenerate,
+  onSuggestionResponse,
+  trip,
+  draftData,
+  generating = false,
+}: AIDraftProps) {
   const [selectedDay, setSelectedDay] = useState(1);
 
-  const days = [
-    {
-      day: 1,
-      date: "Apr 15",
-      activities: [
-        { time: "8:30 AM", name: "Senso-ji Temple", duration: "2h", cost: 0, votes: { for: 4, against: 0 } },
-        { time: "11:00 AM", name: "Tokyo Skytree", duration: "2.5h", cost: 35, votes: { for: 3, against: 1 } },
-        { time: "2:00 PM", name: "Lunch at Asakusa", duration: "1h", cost: 25, votes: { for: 4, against: 0 } },
-        { time: "4:00 PM", name: "Ueno Park", duration: "2h", cost: 0, votes: { for: 4, against: 0 } },
-      ],
-    },
-    {
-      day: 2,
-      date: "Apr 16",
-      activities: [
-        { time: "9:00 AM", name: "Tsukiji Market Tour", duration: "2h", cost: 45, votes: { for: 3, against: 1 } },
-        { time: "12:00 PM", name: "Imperial Palace", duration: "2h", cost: 0, votes: { for: 4, against: 0 } },
-        { time: "3:00 PM", name: "Ginza Shopping", duration: "3h", cost: 100, votes: { for: 2, against: 2 } },
-      ],
-    },
-    {
-      day: 3,
-      date: "Apr 17",
-      activities: [
-        { time: "10:00 AM", name: "Meiji Shrine", duration: "1.5h", cost: 0, votes: { for: 4, against: 0 } },
-        { time: "1:00 PM", name: "Harajuku & Takeshita Street", duration: "2h", cost: 30, votes: { for: 3, against: 1 } },
-        { time: "4:00 PM", name: "Shibuya Crossing", duration: "1h", cost: 0, votes: { for: 4, against: 0 } },
-      ],
-    },
-    {
-      day: 4,
-      date: "Apr 18",
-      activities: [
-        { time: "10:00 AM", name: "Yoyogi Park", duration: "2h", cost: 0, votes: { for: 4, against: 0 } },
-        { time: "1:00 PM", name: "Omotesando Shopping", duration: "2.5h", cost: 80, votes: { for: 3, against: 1 } },
-        { time: "4:00 PM", name: "Nezu Museum", duration: "1.5h", cost: 15, votes: { for: 3, against: 1 } },
-      ],
-    },
-    {
-      day: 5,
-      date: "Apr 19",
-      activities: [
-        { time: "6:00 AM", name: "Mount Fuji Day Trip", duration: "8h", cost: 120, votes: { for: 4, against: 0 } },
-        { time: "3:00 PM", name: "Lake Kawaguchi", duration: "2h", cost: 0, votes: { for: 4, against: 0 } },
-      ],
-    },
-    {
-      day: 6,
-      date: "Apr 20",
-      activities: [
-        { time: "9:00 AM", name: "Shinjuku Gyoen Garden", duration: "2h", cost: 5, votes: { for: 3, against: 1 } },
-        { time: "12:00 PM", name: "Kabukicho District", duration: "1.5h", cost: 0, votes: { for: 3, against: 1 } },
-        { time: "3:00 PM", name: "Tokyo Metropolitan Building", duration: "2h", cost: 0, votes: { for: 4, against: 0 } },
-      ],
-    },
-    {
-      day: 7,
-      date: "Apr 21",
-      activities: [
-        { time: "8:00 AM", name: "Odaiba Seaside Park", duration: "2h", cost: 0, votes: { for: 4, against: 0 } },
-        { time: "11:00 AM", name: "DiverCity Tokyo Plaza", duration: "2h", cost: 50, votes: { for: 3, against: 1 } },
-        { time: "2:00 PM", name: "Final Lunch at Toyosu", duration: "1.5h", cost: 40, votes: { for: 4, against: 0 } },
-      ],
-    },
-  ];
+  const days = useMemo(() => {
+    const itinerary = draftData?.itinerary || trip?.itinerary || [];
+    return itinerary.map((day) => ({
+      day: day.day,
+      date: day.dateLabel,
+      activities: day.activities.map((activity) => ({
+        id: activity.id,
+        time: activity.time,
+        name: activity.name,
+        duration: activity.duration || "1h",
+        location: activity.location || trip?.destination || "Trip destination",
+        cost: activity.cost || 0,
+        votes: activity.votes,
+      })),
+    }));
+  }, [draftData, trip]);
 
-  const currentDay = days[selectedDay - 1] || days[0];
-  const totalBudget = 2000;
-  const estimatedCost = days.reduce((sum, day) =>
-    sum + day.activities.reduce((daySum, act) => daySum + act.cost, 0), 0
+  const currentDay = days.find((day) => day.day === selectedDay) || days[0];
+  const totalBudget = trip?.preferences.budgetMax || 2000;
+  const estimatedCost = days.reduce(
+    (sum, day) => sum + day.activities.reduce((daySum, act) => daySum + act.cost, 0),
+    0,
   );
-  const budgetPercent = (estimatedCost / totalBudget) * 100;
+  const budgetPercent = totalBudget ? (estimatedCost / totalBudget) * 100 : 0;
+  const weather = draftData?.aiDraftMeta.weather;
+  const attractions = draftData?.aiDraftMeta.attractions || [];
+  const insights = draftData?.aiDraftMeta.insights || [];
+  const suggestions = draftData?.aiSuggestions || trip?.aiSuggestions || [];
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-neutral-50 via-white to-primary-50">
-      {/* Header */}
       <header className="border-b border-neutral-200 bg-white/80 backdrop-blur-sm sticky top-0 z-50">
         <div className="max-w-[1440px] mx-auto px-8 py-4">
           <div className="flex items-center justify-between">
@@ -93,8 +73,10 @@ export function AIDraft({ onContinue }: AIDraftProps) {
                   <Globe className="w-5 h-5 text-white" />
                 </div>
                 <div>
-                  <h1 className="text-lg font-bold text-neutral-900">Tokyo Adventure</h1>
-                  <p className="text-xs text-neutral-500">April 15-22, 2026</p>
+                  <h1 className="text-lg font-bold text-neutral-900">{trip?.name || "AI Draft"}</h1>
+                  <p className="text-xs text-neutral-500">
+                    {trip ? `${trip.startDate} - ${trip.endDate}` : "Trip itinerary"}
+                  </p>
                 </div>
               </div>
               <div className="ml-4 px-3 py-1.5 bg-gradient-to-r from-purple-50 to-pink-50 border border-purple-200 rounded-full flex items-center gap-2">
@@ -104,9 +86,13 @@ export function AIDraft({ onContinue }: AIDraftProps) {
             </div>
 
             <div className="flex items-center gap-3">
-              <button className="px-4 py-2 bg-white border border-neutral-300 text-neutral-700 rounded-lg font-medium hover:bg-neutral-50 transition-colors flex items-center gap-2 text-sm">
+              <button
+                onClick={onRegenerate}
+                disabled={generating}
+                className="px-4 py-2 bg-white border border-neutral-300 text-neutral-700 rounded-lg font-medium hover:bg-neutral-50 transition-colors flex items-center gap-2 text-sm disabled:opacity-50"
+              >
                 <RefreshCw className="w-4 h-4" />
-                Regenerate
+                {generating ? "Generating..." : "Regenerate"}
               </button>
               <button className="px-4 py-2 bg-white border border-neutral-300 text-neutral-700 rounded-lg font-medium hover:bg-neutral-50 transition-colors flex items-center gap-2 text-sm">
                 <Download className="w-4 h-4" />
@@ -125,36 +111,43 @@ export function AIDraft({ onContinue }: AIDraftProps) {
       </header>
 
       <div className="max-w-[1440px] mx-auto px-8 py-8">
-        {/* AI Generation Notice */}
         <div className="mb-8 p-6 bg-gradient-to-br from-purple-50 via-pink-50 to-purple-50 rounded-xl border border-purple-200">
           <div className="flex items-start gap-4">
             <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center shrink-0">
               <Sparkles className="w-6 h-6 text-white" />
             </div>
             <div className="flex-1">
-              <h3 className="text-lg font-semibold text-purple-900 mb-2">Your itinerary is ready!</h3>
+              <h3 className="text-lg font-semibold text-purple-900 mb-2">Your itinerary is ready</h3>
               <p className="text-sm text-purple-700 mb-4">
-                AI generated this 7-day plan based on your group's preferences: moderate pace, $2,000/person budget, and interests in culture & food. Now your team can vote, discuss, and refine together.
+                This draft is generated from your group preferences, destination data, and live context where available.
               </p>
-              <div className="flex items-center gap-4">
+              <div className="flex items-center gap-4 flex-wrap">
                 <div className="flex items-center gap-2">
                   <Users className="w-4 h-4 text-purple-600" />
-                  <span className="text-sm font-medium text-purple-900">4 members ready</span>
+                  <span className="text-sm font-medium text-purple-900">{trip?.members.length || 0} members</span>
                 </div>
                 <div className="w-px h-4 bg-purple-300" />
                 <div className="flex items-center gap-2">
                   <Check className="w-4 h-4 text-purple-600" />
-                  <span className="text-sm font-medium text-purple-900">18 activities proposed</span>
+                  <span className="text-sm font-medium text-purple-900">
+                    {days.flatMap((day) => day.activities).length} activities proposed
+                  </span>
                 </div>
+                {weather && (
+                  <>
+                    <div className="w-px h-4 bg-purple-300" />
+                    <span className="text-sm font-medium text-purple-900">
+                      {weather.city || trip?.destination}: {weather.weather || "Unknown"} {weather.temperature || ""}°C
+                    </span>
+                  </>
+                )}
               </div>
             </div>
           </div>
         </div>
 
         <div className="grid grid-cols-3 gap-8">
-          {/* Left: Day Tabs & Itinerary */}
           <div className="col-span-2 space-y-6">
-            {/* Day Tabs */}
             <div className="bg-white rounded-xl border border-neutral-200 p-2 flex gap-2 overflow-x-auto">
               {days.map((day) => (
                 <button
@@ -172,98 +165,65 @@ export function AIDraft({ onContinue }: AIDraftProps) {
               ))}
             </div>
 
-            {/* Activities List */}
             <div className="space-y-4">
-              {currentDay.activities.map((activity, i) => (
-                <div key={i} className="bg-white rounded-xl p-6 border border-neutral-200 hover:shadow-md transition-shadow">
-                  <div className="flex items-start justify-between mb-4">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-3 mb-2">
-                        <Clock className="w-4 h-4 text-neutral-400" />
-                        <span className="text-sm font-medium text-neutral-600">{activity.time}</span>
-                        <span className="text-sm text-neutral-400">•</span>
-                        <span className="text-sm text-neutral-500">{activity.duration}</span>
-                      </div>
-                      <h3 className="text-lg font-semibold text-neutral-900 mb-2">{activity.name}</h3>
-                      <div className="flex items-center gap-2">
-                        <span className="px-2 py-1 bg-primary-50 text-primary-700 rounded-md text-xs font-medium">
-                          ${activity.cost}
-                        </span>
-                        {activity.votes.for + activity.votes.against > 0 && (
-                          <span className={`px-2 py-1 rounded-md text-xs font-medium ${
-                            activity.votes.for > activity.votes.against
-                              ? "bg-success-50 text-success-700"
-                              : "bg-warning-50 text-warning-700"
-                          }`}>
-                            {Math.round((activity.votes.for / (activity.votes.for + activity.votes.against)) * 100)}% consensus
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <button className={`px-4 py-2 rounded-lg border font-medium text-sm transition-all ${
-                        activity.votes.for > 0
-                          ? "bg-primary border-primary text-primary-foreground"
-                          : "bg-white border-neutral-200 text-neutral-700 hover:border-primary-300 hover:bg-primary-50"
-                      }`}>
-                        <div className="flex items-center gap-2">
-                          <Check className="w-4 h-4" />
-                          <span>{activity.votes.for}</span>
+              {(currentDay?.activities || []).map((activity) => {
+                const totalVotes = activity.votes.for + activity.votes.against;
+                const consensus = totalVotes ? Math.round((activity.votes.for / totalVotes) * 100) : 0;
+                return (
+                  <div key={activity.id} className="bg-white rounded-xl p-6 border border-neutral-200 hover:shadow-md transition-shadow">
+                    <div className="flex items-start justify-between mb-4">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-3 mb-2">
+                          <Clock className="w-4 h-4 text-neutral-400" />
+                          <span className="text-sm font-medium text-neutral-600">{activity.time}</span>
+                          <span className="text-sm text-neutral-400">·</span>
+                          <span className="text-sm text-neutral-500">{activity.duration}</span>
                         </div>
-                      </button>
-                      <button className={`px-4 py-2 rounded-lg border font-medium text-sm transition-all ${
-                        activity.votes.against > 0
-                          ? "bg-neutral-700 border-neutral-700 text-white"
-                          : "bg-white border-neutral-200 text-neutral-700 hover:border-neutral-400 hover:bg-neutral-50"
-                      }`}>
-                        {activity.votes.against}
-                      </button>
+                        <h3 className="text-lg font-semibold text-neutral-900 mb-2">{activity.name}</h3>
+                        <div className="text-sm text-neutral-500 mb-3">{activity.location}</div>
+                        <div className="flex items-center gap-2">
+                          <span className="px-2 py-1 bg-primary-50 text-primary-700 rounded-md text-xs font-medium">
+                            ${activity.cost}
+                          </span>
+                          {totalVotes > 0 && (
+                            <span className="px-2 py-1 rounded-md text-xs font-medium bg-success-50 text-success-700">
+                              {consensus}% consensus
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <div className="flex-1 h-2 bg-neutral-100 rounded-full overflow-hidden">
+                        <div className="h-full bg-gradient-to-r from-primary-500 to-primary-400" style={{ width: `${consensus}%` }} />
+                      </div>
+                      <span className="text-xs font-medium text-neutral-600 min-w-[3rem] text-right">{consensus}%</span>
                     </div>
                   </div>
-
-                  {/* Consensus bar */}
-                  <div className="flex items-center gap-3">
-                    <div className="flex-1 h-2 bg-neutral-100 rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-gradient-to-r from-primary-500 to-primary-400 transition-all duration-300"
-                        style={{ width: `${(activity.votes.for / (activity.votes.for + activity.votes.against)) * 100}%` }}
-                      />
-                    </div>
-                    <span className="text-xs font-medium text-neutral-600 min-w-[3rem] text-right">
-                      {Math.round((activity.votes.for / (activity.votes.for + activity.votes.against)) * 100)}%
-                    </span>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
 
-          {/* Right: Map & Stats */}
           <div className="space-y-6">
-            {/* Map */}
             <div className="bg-white rounded-xl border border-neutral-200 overflow-hidden">
               <div className="p-4 border-b border-neutral-200">
                 <h3 className="font-semibold text-neutral-900 flex items-center gap-2">
                   <MapPin className="w-4 h-4 text-primary-600" />
-                  Day {selectedDay} Route
+                  Top Nearby Places
                 </h3>
               </div>
-              <div className="aspect-square bg-gradient-to-br from-primary-50 to-primary-100 relative">
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <div className="text-center">
-                    <MapPin className="w-12 h-12 text-primary-400 mx-auto mb-2" />
-                    <p className="text-sm text-primary-600 font-medium">Interactive map</p>
-                    <p className="text-xs text-primary-500">{currentDay.activities.length} locations</p>
+              <div className="p-4 space-y-3">
+                {attractions.slice(0, 5).map((place, index) => (
+                  <div key={`${place.name || "place"}_${index}`} className="rounded-lg border border-neutral-200 p-3">
+                    <div className="font-medium text-sm text-neutral-900">{place.name || "Suggested place"}</div>
+                    <div className="text-xs text-neutral-500 mt-1">{place.address || trip?.destination}</div>
+                    {place.type && <div className="text-xs text-primary-600 mt-2">{place.type}</div>}
                   </div>
-                </div>
-                {/* Simulated markers */}
-                <div className="absolute top-1/4 left-1/4 w-3 h-3 bg-primary-600 rounded-full border-2 border-white shadow-lg" />
-                <div className="absolute top-1/3 right-1/3 w-3 h-3 bg-primary-600 rounded-full border-2 border-white shadow-lg" />
-                <div className="absolute bottom-1/3 left-1/2 w-3 h-3 bg-primary-600 rounded-full border-2 border-white shadow-lg" />
+                ))}
               </div>
             </div>
 
-            {/* Budget Progress */}
             <div className="bg-white rounded-xl p-6 border border-neutral-200">
               <h3 className="font-semibold text-neutral-900 mb-4 flex items-center gap-2">
                 <DollarSign className="w-4 h-4 text-primary-600" />
@@ -275,63 +235,78 @@ export function AIDraft({ onContinue }: AIDraftProps) {
                   <span className="text-sm text-neutral-500">of ${totalBudget}</span>
                 </div>
                 <div className="h-3 bg-neutral-100 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-gradient-to-r from-primary-500 to-primary-400 transition-all duration-500"
-                    style={{ width: `${budgetPercent}%` }}
-                  />
+                  <div className="h-full bg-gradient-to-r from-primary-500 to-primary-400" style={{ width: `${Math.min(100, budgetPercent)}%` }} />
                 </div>
                 <div className="flex items-center gap-2 text-sm">
                   <TrendingDown className="w-4 h-4 text-success-500" />
-                  <span className="font-medium text-success-600">${totalBudget - estimatedCost} remaining</span>
-                </div>
-                <div className="pt-3 border-t border-neutral-200 text-xs text-neutral-500">
-                  Per person estimate: ${Math.round(estimatedCost / 4)}
+                  <span className="font-medium text-success-600">${Math.max(0, totalBudget - estimatedCost)} remaining</span>
                 </div>
               </div>
             </div>
 
-            {/* Team Status */}
             <div className="bg-white rounded-xl p-6 border border-neutral-200">
               <h3 className="font-semibold text-neutral-900 mb-4 flex items-center gap-2">
                 <Users className="w-4 h-4 text-primary-600" />
                 Team Members
               </h3>
               <div className="space-y-3">
-                {["Alice Chen", "Bob Smith", "Carol Lee", "David Park"].map((name, i) => (
-                  <div key={i} className="flex items-center gap-3">
+                {(trip?.members || []).map((member) => (
+                  <div key={member.id} className="flex items-center gap-3">
                     <div className="w-8 h-8 rounded-full bg-gradient-to-br from-primary-400 to-primary-500 flex items-center justify-center text-white text-xs font-semibold">
-                      {name.charAt(0)}
+                      {member.name.charAt(0)}
                     </div>
                     <div className="flex-1">
-                      <div className="text-sm font-medium text-neutral-900">{name}</div>
-                      <div className="text-xs text-neutral-500">Ready to vote</div>
+                      <div className="text-sm font-medium text-neutral-900">{member.name}</div>
+                      <div className="text-xs text-neutral-500">{member.invitationStatus}</div>
                     </div>
-                    <div className="w-2 h-2 rounded-full bg-success-500" />
+                    <div className={`w-2 h-2 rounded-full ${member.isOnline ? "bg-success-500" : "bg-neutral-300"}`} />
                   </div>
                 ))}
               </div>
             </div>
 
-            {/* AI Insights */}
             <div className="bg-gradient-to-br from-purple-50 to-pink-50 rounded-xl p-6 border border-purple-200">
               <div className="flex items-center gap-2 mb-3">
                 <Sparkles className="w-4 h-4 text-purple-600" />
                 <h3 className="font-semibold text-purple-900">AI Insights</h3>
               </div>
               <ul className="space-y-2 text-sm text-purple-700">
-                <li className="flex items-start gap-2">
-                  <Check className="w-4 h-4 text-purple-600 shrink-0 mt-0.5" />
-                  <span>Route optimized to minimize travel time</span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <Check className="w-4 h-4 text-purple-600 shrink-0 mt-0.5" />
-                  <span>Morning activities at popular sites to avoid crowds</span>
-                </li>
-                <li className="flex items-start gap-2">
-                  <Check className="w-4 h-4 text-purple-600 shrink-0 mt-0.5" />
-                  <span>Balanced mix of culture and relaxation</span>
-                </li>
+                {insights.map((insight, index) => (
+                  <li key={`${insight}_${index}`} className="flex items-start gap-2">
+                    <Check className="w-4 h-4 text-purple-600 shrink-0 mt-0.5" />
+                    <span>{insight}</span>
+                  </li>
+                ))}
               </ul>
+            </div>
+
+            <div className="bg-white rounded-xl p-6 border border-neutral-200">
+              <h3 className="font-semibold text-neutral-900 mb-4">AI Suggestions</h3>
+              <div className="space-y-3">
+                {suggestions.map((suggestion) => (
+                  <div key={suggestion.id} className="rounded-xl border border-neutral-200 p-4">
+                    <div className="font-medium text-neutral-900 mb-1">{suggestion.title}</div>
+                    <div className="text-sm text-neutral-600 mb-3">{suggestion.description}</div>
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-xs font-medium text-neutral-500 uppercase">{suggestion.status}</span>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => onSuggestionResponse?.(suggestion.id, "accepted")}
+                          className="px-3 py-1.5 rounded-lg bg-primary text-white text-xs font-medium"
+                        >
+                          Accept
+                        </button>
+                        <button
+                          onClick={() => onSuggestionResponse?.(suggestion.id, "dismissed")}
+                          className="px-3 py-1.5 rounded-lg bg-neutral-100 text-neutral-700 text-xs font-medium"
+                        >
+                          Dismiss
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         </div>

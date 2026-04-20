@@ -1,56 +1,96 @@
-import { Globe, DollarSign, Plus, Receipt, Users, ArrowRight, ArrowLeft, TrendingUp, Utensils, Home, MapPin, ShoppingBag, Plane } from "lucide-react";
-import { useState } from "react";
+import {
+  ArrowLeft,
+  ArrowRight,
+  DollarSign,
+  Globe,
+  Home,
+  MapPin,
+  Plane,
+  Plus,
+  Receipt,
+  ShoppingBag,
+  TrendingUp,
+  Users,
+  Utensils,
+} from "lucide-react";
+import { useMemo, useState } from "react";
 import { BudgetProgress } from "../components/helloworld/BudgetProgress";
+import type { Expense, Trip } from "@/domain/types";
 
 interface ExpenseTrackingProps {
   onBack: () => void;
   onContinue?: () => void;
+  trip?: Trip;
+  onAddExpense?: (input: Omit<Expense, "id">) => void;
+  addingExpense?: boolean;
+  onMarkSettlementPaid?: (settlementId: string) => void;
+  markingSettlement?: boolean;
 }
 
-export function ExpenseTracking({ onBack, onContinue }: ExpenseTrackingProps) {
+export function ExpenseTracking({
+  onBack,
+  onContinue,
+  trip,
+  onAddExpense,
+  addingExpense = false,
+  onMarkSettlementPaid,
+  markingSettlement = false,
+}: ExpenseTrackingProps) {
   const [view, setView] = useState<"expenses" | "settlement">("expenses");
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [draftExpense, setDraftExpense] = useState({
+    date: trip?.startDate || "Apr 15",
+    category: "food" as Expense["category"],
+    description: "",
+    amount: "0",
+    paidBy: trip?.members?.[0]?.name || "Demo Traveler",
+    splitWith: trip?.members?.map((member) => member.name) || [],
+  });
 
-  const expenses = [
-    { id: 1, date: "Apr 15", category: "Food", description: "Lunch at Asakusa", amount: 85, paidBy: "Alice", splitWith: ["Alice", "Bob", "Carol", "David"] },
-    { id: 2, date: "Apr 15", category: "Activity", description: "Tokyo Skytree tickets", amount: 140, paidBy: "Bob", splitWith: ["Alice", "Bob", "Carol", "David"] },
-    { id: 3, date: "Apr 16", category: "Food", description: "Tsukiji Market breakfast", amount: 65, paidBy: "Carol", splitWith: ["Alice", "Bob", "Carol"] },
-    { id: 4, date: "Apr 16", category: "Transport", description: "JR Pass", amount: 280, paidBy: "Alice", splitWith: ["Alice", "Bob", "Carol", "David"] },
-    { id: 5, date: "Apr 16", category: "Shopping", description: "Ginza purchases", amount: 320, paidBy: "David", splitWith: ["David"] },
-    { id: 6, date: "Apr 17", category: "Food", description: "Harajuku crepes", amount: 45, paidBy: "Bob", splitWith: ["Bob", "Carol", "David"] },
-  ];
-
-  const categories = [
-    { id: "food", name: "Food", icon: Utensils, color: "primary", total: 195 },
-    { id: "activity", name: "Activities", icon: MapPin, color: "success", total: 140 },
-    { id: "transport", name: "Transport", icon: Plane, color: "info", total: 280 },
-    { id: "shopping", name: "Shopping", icon: ShoppingBag, color: "warning", total: 320 },
-    { id: "accommodation", name: "Lodging", icon: Home, color: "neutral", total: 0 },
-  ];
-
-  const settlements = [
-    { from: "Bob", to: "Alice", amount: 105 },
-    { from: "Carol", to: "Alice", amount: 48 },
-    { from: "David", to: "Bob", amount: 15 },
-  ];
-
-  const members = [
-    { name: "Alice", paid: 365, owes: 0, balance: 152 },
-    { name: "Bob", paid: 185, owes: 105, balance: -55 },
-    { name: "Carol", paid: 65, owes: 48, balance: -180 },
-    { name: "David", paid: 320, owes: 0, balance: 83 },
-  ];
-
+  const expenses = trip?.expenses || [];
   const totalSpent = expenses.reduce((sum, exp) => sum + exp.amount, 0);
-  const budget = 2000 * 4;
+  const budget = (trip?.preferences.budgetMax || 2000) * Math.max(trip?.members.length || 1, 1);
+
+  const categories = useMemo(
+    () => [
+      { id: "food", name: "Food", icon: Utensils },
+      { id: "activity", name: "Activities", icon: MapPin },
+      { id: "transport", name: "Transport", icon: Plane },
+      { id: "shopping", name: "Shopping", icon: ShoppingBag },
+      { id: "accommodation", name: "Lodging", icon: Home },
+    ].map((category) => ({
+      ...category,
+      total: expenses
+        .filter((expense) => expense.category === category.id)
+        .reduce((sum, expense) => sum + expense.amount, 0),
+    })),
+    [expenses],
+  );
 
   const filteredExpenses = selectedCategory
-    ? expenses.filter(e => e.category.toLowerCase() === selectedCategory)
+    ? expenses.filter((expense) => expense.category === selectedCategory)
     : expenses;
+
+  const memberBalances =
+    trip?.members.map((member) => {
+      const paid = expenses
+        .filter((expense) => expense.paidBy === member.name)
+        .reduce((sum, expense) => sum + expense.amount, 0);
+      const owes = expenses.reduce((sum, expense) => {
+        if (!expense.splitWith.includes(member.name)) return sum;
+        return sum + expense.amount / Math.max(1, expense.splitWith.length);
+      }, 0);
+      return {
+        name: member.name,
+        paid,
+        owes,
+        balance: paid - owes,
+      };
+    }) || [];
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-neutral-50 via-white to-primary-50">
-      {/* Header */}
       <header className="border-b border-neutral-200 bg-white/80 backdrop-blur-sm sticky top-0 z-50">
         <div className="max-w-7xl mx-auto px-8 py-4">
           <div className="flex items-center justify-between">
@@ -63,11 +103,14 @@ export function ExpenseTracking({ onBack, onContinue }: ExpenseTrackingProps) {
                 <Globe className="w-4 h-4 text-white" />
               </div>
               <div>
-                <span className="text-sm font-semibold text-neutral-900">Tokyo Adventure</span>
+                <span className="text-sm font-semibold text-neutral-900">{trip?.name || "Expense Tracking"}</span>
                 <p className="text-xs text-neutral-500">Expense Tracking</p>
               </div>
             </div>
-            <button className="px-6 py-2 bg-primary text-primary-foreground rounded-lg font-medium hover:bg-primary-600 transition-colors flex items-center gap-2 text-sm shadow-sm">
+            <button
+              onClick={() => setShowAddForm((current) => !current)}
+              className="px-6 py-2 bg-primary text-primary-foreground rounded-lg font-medium hover:bg-primary-600 transition-colors flex items-center gap-2 text-sm shadow-sm"
+            >
               <Plus className="w-4 h-4" />
               Add Expense
             </button>
@@ -76,14 +119,11 @@ export function ExpenseTracking({ onBack, onContinue }: ExpenseTrackingProps) {
       </header>
 
       <div className="max-w-7xl mx-auto px-8 py-8">
-        {/* View Toggle */}
         <div className="mb-8 bg-white rounded-xl p-2 border border-neutral-200 inline-flex">
           <button
             onClick={() => setView("expenses")}
             className={`px-6 py-2.5 rounded-lg font-medium transition-all ${
-              view === "expenses"
-                ? "bg-primary text-primary-foreground shadow-sm"
-                : "text-neutral-600 hover:bg-neutral-50"
+              view === "expenses" ? "bg-primary text-primary-foreground shadow-sm" : "text-neutral-600 hover:bg-neutral-50"
             }`}
           >
             <div className="flex items-center gap-2">
@@ -94,9 +134,7 @@ export function ExpenseTracking({ onBack, onContinue }: ExpenseTrackingProps) {
           <button
             onClick={() => setView("settlement")}
             className={`px-6 py-2.5 rounded-lg font-medium transition-all ${
-              view === "settlement"
-                ? "bg-primary text-primary-foreground shadow-sm"
-                : "text-neutral-600 hover:bg-neutral-50"
+              view === "settlement" ? "bg-primary text-primary-foreground shadow-sm" : "text-neutral-600 hover:bg-neutral-50"
             }`}
           >
             <div className="flex items-center gap-2">
@@ -106,26 +144,125 @@ export function ExpenseTracking({ onBack, onContinue }: ExpenseTrackingProps) {
           </button>
         </div>
 
+        {showAddForm && (
+          <div className="mb-8 bg-white rounded-xl border border-neutral-200 p-6 space-y-4">
+            <h3 className="font-semibold text-neutral-900">Add New Expense</h3>
+            <div className="grid grid-cols-2 gap-3">
+              <input
+                value={draftExpense.date}
+                onChange={(e) => setDraftExpense((current) => ({ ...current, date: e.target.value }))}
+                className="px-3 py-2 rounded-lg border border-neutral-200 text-sm"
+                placeholder="Date"
+              />
+              <select
+                value={draftExpense.category}
+                onChange={(e) =>
+                  setDraftExpense((current) => ({ ...current, category: e.target.value as Expense["category"] }))
+                }
+                className="px-3 py-2 rounded-lg border border-neutral-200 text-sm"
+              >
+                <option value="food">Food</option>
+                <option value="activity">Activity</option>
+                <option value="transport">Transport</option>
+                <option value="shopping">Shopping</option>
+                <option value="accommodation">Accommodation</option>
+              </select>
+            </div>
+            <input
+              value={draftExpense.description}
+              onChange={(e) => setDraftExpense((current) => ({ ...current, description: e.target.value }))}
+              className="w-full px-3 py-2 rounded-lg border border-neutral-200 text-sm"
+              placeholder="Description"
+            />
+            <div className="grid grid-cols-2 gap-3">
+              <input
+                value={draftExpense.amount}
+                onChange={(e) => setDraftExpense((current) => ({ ...current, amount: e.target.value }))}
+                className="px-3 py-2 rounded-lg border border-neutral-200 text-sm"
+                placeholder="Amount"
+              />
+              <select
+                value={draftExpense.paidBy}
+                onChange={(e) => setDraftExpense((current) => ({ ...current, paidBy: e.target.value }))}
+                className="px-3 py-2 rounded-lg border border-neutral-200 text-sm"
+              >
+                {(trip?.members || []).map((member) => (
+                  <option key={member.id} value={member.name}>
+                    {member.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <div className="text-sm font-medium text-neutral-700 mb-2">Split with</div>
+              <div className="flex flex-wrap gap-2">
+                {(trip?.members || []).map((member) => {
+                  const selected = draftExpense.splitWith.includes(member.name);
+                  return (
+                    <button
+                      key={member.id}
+                      onClick={() =>
+                        setDraftExpense((current) => ({
+                          ...current,
+                          splitWith: selected
+                            ? current.splitWith.filter((name) => name !== member.name)
+                            : [...current.splitWith, member.name],
+                        }))
+                      }
+                      className={`px-3 py-1.5 rounded-full text-sm border ${
+                        selected ? "bg-primary text-white border-primary" : "bg-white text-neutral-700 border-neutral-200"
+                      }`}
+                    >
+                      {member.name}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+            <div className="flex justify-end gap-2">
+              <button
+                onClick={() => setShowAddForm(false)}
+                className="px-4 py-2 rounded-lg bg-neutral-100 text-neutral-700 text-sm"
+              >
+                Cancel
+              </button>
+              <button
+                disabled={!draftExpense.description.trim() || !draftExpense.splitWith.length || addingExpense}
+                onClick={() => {
+                  onAddExpense?.({
+                    date: draftExpense.date,
+                    category: draftExpense.category,
+                    description: draftExpense.description.trim(),
+                    amount: Number(draftExpense.amount || 0),
+                    paidBy: draftExpense.paidBy,
+                    splitWith: draftExpense.splitWith,
+                  });
+                  setDraftExpense((current) => ({ ...current, description: "", amount: "0" }));
+                  setShowAddForm(false);
+                }}
+                className="px-4 py-2 rounded-lg bg-primary text-white text-sm font-semibold disabled:opacity-50"
+              >
+                Save Expense
+              </button>
+            </div>
+          </div>
+        )}
+
         {view === "expenses" ? (
           <div className="grid grid-cols-3 gap-8">
-            {/* Left: Budget & Categories */}
             <div className="space-y-6">
-              {/* Budget */}
               <div className="bg-white rounded-xl p-6 border border-neutral-200">
                 <h3 className="font-semibold text-neutral-900 mb-4">Total Budget</h3>
                 <BudgetProgress current={totalSpent} budget={budget} />
               </div>
 
-              {/* Categories */}
               <div className="bg-white rounded-xl p-6 border border-neutral-200">
                 <h3 className="font-semibold text-neutral-900 mb-4">Categories</h3>
                 <div className="space-y-2">
                   <button
                     onClick={() => setSelectedCategory(null)}
                     className={`w-full p-3 rounded-lg border transition-all text-left ${
-                      !selectedCategory
-                        ? "border-primary-300 bg-primary-50"
-                        : "border-neutral-200 hover:bg-neutral-50"
+                      !selectedCategory ? "border-primary-300 bg-primary-50" : "border-neutral-200 hover:bg-neutral-50"
                     }`}
                   >
                     <div className="flex items-center justify-between">
@@ -155,23 +292,19 @@ export function ExpenseTracking({ onBack, onContinue }: ExpenseTrackingProps) {
                 </div>
               </div>
 
-              {/* Category Breakdown */}
               <div className="bg-white rounded-xl p-6 border border-neutral-200">
                 <h3 className="font-semibold text-neutral-900 mb-4">Breakdown</h3>
                 <div className="space-y-3">
-                  {categories.filter(c => c.total > 0).map((cat) => (
+                  {categories.filter((c) => c.total > 0).map((cat) => (
                     <div key={cat.id}>
                       <div className="flex items-center justify-between mb-2">
                         <span className="text-sm text-neutral-600">{cat.name}</span>
                         <span className="text-sm font-semibold text-neutral-900">
-                          {Math.round((cat.total / totalSpent) * 100)}%
+                          {totalSpent ? Math.round((cat.total / totalSpent) * 100) : 0}%
                         </span>
                       </div>
                       <div className="h-2 bg-neutral-100 rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-gradient-to-r from-primary-500 to-primary-400"
-                          style={{ width: `${(cat.total / totalSpent) * 100}%` }}
-                        />
+                        <div className="h-full bg-gradient-to-r from-primary-500 to-primary-400" style={{ width: `${totalSpent ? (cat.total / totalSpent) * 100 : 0}%` }} />
                       </div>
                     </div>
                   ))}
@@ -179,11 +312,10 @@ export function ExpenseTracking({ onBack, onContinue }: ExpenseTrackingProps) {
               </div>
             </div>
 
-            {/* Right: Expense List */}
             <div className="col-span-2 space-y-4">
               <div className="flex items-center justify-between">
                 <h2 className="text-2xl font-bold text-neutral-900">
-                  {selectedCategory ? categories.find(c => c.id === selectedCategory)?.name : "All Expenses"}
+                  {selectedCategory ? categories.find((c) => c.id === selectedCategory)?.name : "All Expenses"}
                 </h2>
                 <span className="text-sm text-neutral-500">{filteredExpenses.length} transactions</span>
               </div>
@@ -204,13 +336,15 @@ export function ExpenseTracking({ onBack, onContinue }: ExpenseTrackingProps) {
                           <div className="w-6 h-6 rounded-full bg-gradient-to-br from-primary-400 to-primary-500 flex items-center justify-center text-white text-xs font-semibold">
                             {expense.paidBy.charAt(0)}
                           </div>
-                          <span className="text-sm text-neutral-600">Paid by <span className="font-medium">{expense.paidBy}</span></span>
+                          <span className="text-sm text-neutral-600">
+                            Paid by <span className="font-medium">{expense.paidBy}</span>
+                          </span>
                         </div>
                       </div>
                       <div className="text-right">
                         <div className="text-2xl font-bold text-neutral-900">${expense.amount}</div>
                         <div className="text-xs text-neutral-500">
-                          ${(expense.amount / expense.splitWith.length).toFixed(2)}/person
+                          ${(expense.amount / Math.max(1, expense.splitWith.length)).toFixed(2)}/person
                         </div>
                       </div>
                     </div>
@@ -239,10 +373,9 @@ export function ExpenseTracking({ onBack, onContinue }: ExpenseTrackingProps) {
           </div>
         ) : (
           <div className="grid grid-cols-3 gap-8">
-            {/* Left: Member Balances */}
             <div className="space-y-4">
               <h2 className="text-lg font-semibold text-neutral-900">Member Balances</h2>
-              {members.map((member) => (
+              {memberBalances.map((member) => (
                 <div key={member.name} className="bg-white rounded-xl p-5 border border-neutral-200">
                   <div className="flex items-center gap-3 mb-4">
                     <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary-400 to-primary-500 flex items-center justify-center text-white text-sm font-semibold">
@@ -254,41 +387,39 @@ export function ExpenseTracking({ onBack, onContinue }: ExpenseTrackingProps) {
                         {member.balance > 0 ? "Gets back" : member.balance < 0 ? "Owes" : "Settled"}
                       </div>
                     </div>
-                    <div className={`text-lg font-bold ${
-                      member.balance > 0
-                        ? "text-success-600"
-                        : member.balance < 0
-                        ? "text-danger-600"
-                        : "text-neutral-400"
-                    }`}>
-                      ${Math.abs(member.balance)}
+                    <div
+                      className={`text-lg font-bold ${
+                        member.balance > 0
+                          ? "text-success-600"
+                          : member.balance < 0
+                            ? "text-danger-600"
+                            : "text-neutral-400"
+                      }`}
+                    >
+                      ${Math.abs(member.balance).toFixed(0)}
                     </div>
                   </div>
 
                   <div className="space-y-2 text-sm">
                     <div className="flex items-center justify-between">
                       <span className="text-neutral-600">Paid</span>
-                      <span className="font-semibold text-neutral-900">${member.paid}</span>
+                      <span className="font-semibold text-neutral-900">${member.paid.toFixed(0)}</span>
                     </div>
-                    {member.owes > 0 && (
-                      <div className="flex items-center justify-between">
-                        <span className="text-neutral-600">Owes</span>
-                        <span className="font-semibold text-danger-600">${member.owes}</span>
-                      </div>
-                    )}
+                    <div className="flex items-center justify-between">
+                      <span className="text-neutral-600">Owes</span>
+                      <span className="font-semibold text-neutral-900">${member.owes.toFixed(0)}</span>
+                    </div>
                   </div>
                 </div>
               ))}
             </div>
 
-            {/* Right: Settlement Plan */}
             <div className="col-span-2 space-y-6">
               <div>
                 <h2 className="text-2xl font-bold text-neutral-900 mb-2">Settlement Plan</h2>
-                <p className="text-neutral-600">Minimize transactions with optimal split calculation</p>
+                <p className="text-neutral-600">Mark payments as they are settled between travelers.</p>
               </div>
 
-              {/* Summary */}
               <div className="grid grid-cols-3 gap-4">
                 <div className="bg-white rounded-xl p-6 border border-neutral-200">
                   <div className="flex items-center gap-3 mb-2">
@@ -296,37 +427,35 @@ export function ExpenseTracking({ onBack, onContinue }: ExpenseTrackingProps) {
                     <span className="text-sm text-neutral-600">Total Spent</span>
                   </div>
                   <div className="text-3xl font-bold text-neutral-900">${totalSpent}</div>
-                  <div className="text-xs text-neutral-500 mt-1">${(totalSpent / 4).toFixed(2)} per person</div>
                 </div>
-
                 <div className="bg-white rounded-xl p-6 border border-neutral-200">
                   <div className="flex items-center gap-3 mb-2">
                     <Users className="w-5 h-5 text-success-600" />
                     <span className="text-sm text-neutral-600">Settled</span>
                   </div>
-                  <div className="text-3xl font-bold text-success-600">1</div>
-                  <div className="text-xs text-neutral-500 mt-1">out of 4 members</div>
+                  <div className="text-3xl font-bold text-success-600">
+                    {trip?.settlements.filter((item) => item.paid).length || 0}
+                  </div>
                 </div>
-
                 <div className="bg-white rounded-xl p-6 border border-neutral-200">
                   <div className="flex items-center gap-3 mb-2">
                     <DollarSign className="w-5 h-5 text-warning-600" />
                     <span className="text-sm text-neutral-600">Transactions</span>
                   </div>
-                  <div className="text-3xl font-bold text-neutral-900">{settlements.length}</div>
-                  <div className="text-xs text-neutral-500 mt-1">to settle everything</div>
+                  <div className="text-3xl font-bold text-neutral-900">{trip?.settlements.length || 0}</div>
                 </div>
               </div>
 
-              {/* Settlement Instructions */}
               <div className="bg-white rounded-xl border border-neutral-200 divide-y divide-neutral-200">
                 <div className="p-6">
                   <h3 className="font-semibold text-neutral-900 mb-2">How to settle</h3>
-                  <p className="text-sm text-neutral-600">Complete these {settlements.length} transactions to balance all expenses</p>
+                  <p className="text-sm text-neutral-600">
+                    Complete these {trip?.settlements.length || 0} transactions to balance all expenses.
+                  </p>
                 </div>
 
-                {settlements.map((settlement, i) => (
-                  <div key={i} className="p-6">
+                {(trip?.settlements || []).map((settlement) => (
+                  <div key={settlement.id} className="p-6">
                     <div className="flex items-center gap-4">
                       <div className="flex items-center gap-3 flex-1">
                         <div className="w-10 h-10 rounded-full bg-gradient-to-br from-danger-400 to-danger-500 flex items-center justify-center text-white font-semibold">
@@ -355,15 +484,22 @@ export function ExpenseTracking({ onBack, onContinue }: ExpenseTrackingProps) {
                         </div>
                       </div>
 
-                      <button className="px-4 py-2 bg-success-500 text-white rounded-lg font-medium hover:bg-success-600 transition-colors text-sm">
-                        Mark Paid
+                      <button
+                        disabled={settlement.paid || markingSettlement}
+                        onClick={() => onMarkSettlementPaid?.(settlement.id)}
+                        className={`px-4 py-2 rounded-lg font-medium transition-colors text-sm ${
+                          settlement.paid
+                            ? "bg-neutral-100 text-neutral-500"
+                            : "bg-success-500 text-white hover:bg-success-600"
+                        } disabled:opacity-50`}
+                      >
+                        {settlement.paid ? "Paid" : "Mark Paid"}
                       </button>
                     </div>
                   </div>
                 ))}
               </div>
 
-              {/* Export */}
               <div className="flex items-center justify-between gap-3">
                 <div className="flex items-center gap-3">
                   <button className="px-4 py-2 bg-white border border-neutral-300 text-neutral-700 rounded-lg font-medium hover:bg-neutral-50 transition-colors text-sm">

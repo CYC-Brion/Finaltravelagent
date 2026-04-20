@@ -1,0 +1,93 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum TripStatus {
+  draft
+  planning
+  finalized
+  in_trip
+  completed
+}
+
+enum MemberRole {
+  owner
+  member
+}
+
+model User {
+  id        String       @id @default(cuid())
+  email     String       @unique
+  name      String
+  createdAt DateTime     @default(now())
+  trips     TripMember[]
+}
+
+model Trip {
+  id          String       @id @default(cuid())
+  name        String
+  destination String
+  startDate   DateTime
+  endDate     DateTime
+  status      TripStatus   @default(draft)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  members     TripMember[]
+  days        ItineraryDay[]
+  expenses    Expense[]
+}
+
+model TripMember {
+  id        String     @id @default(cuid())
+  tripId     String
+  userId     String?
+  email      String
+  name       String
+  role       MemberRole @default(member)
+  trip       Trip       @relation(fields: [tripId], references: [id])
+  user       User?      @relation(fields: [userId], references: [id])
+}
+
+model ItineraryDay {
+  id      String     @id @default(cuid())
+  tripId   String
+  day      Int
+  trip     Trip       @relation(fields: [tripId], references: [id])
+  activities Activity[]
+}
+
+model Activity {
+  id        String       @id @default(cuid())
+  dayId      String
+  name       String
+  timeLabel  String
+  location   String?
+  duration   String?
+  cost       Float?
+  comments   Comment[]
+  day        ItineraryDay @relation(fields: [dayId], references: [id])
+}
+
+model Comment {
+  id         String   @id @default(cuid())
+  activityId  String
+  body        String
+  authorName  String
+  createdAt   DateTime @default(now())
+  activity    Activity @relation(fields: [activityId], references: [id])
+}
+
+model Expense {
+  id          String   @id @default(cuid())
+  tripId       String
+  description  String
+  amount       Float
+  paidBy       String
+  dateLabel    String
+  trip         Trip     @relation(fields: [tripId], references: [id])
+}

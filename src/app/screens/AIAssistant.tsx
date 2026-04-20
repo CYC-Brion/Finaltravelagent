@@ -3,13 +3,57 @@ import { useState } from "react";
 import { AIActionPanel } from "../components/helloworld/AIActionPanel";
 import { AISuggestionChip } from "../components/helloworld/AISuggestionChip";
 import { DiffCard } from "../components/helloworld/DiffCard";
+import type { Trip } from "@/domain/types";
+import { travelApi } from "@/lib/api/travelApi";
+import { useRespondToSuggestion } from "../hooks/useTrips";
 
 interface AIAssistantProps {
   onBack: () => void;
+  trip?: Trip;
 }
 
-export function AIAssistant({ onBack }: AIAssistantProps) {
+export function AIAssistant({ onBack, trip }: AIAssistantProps) {
   const [showDiff, setShowDiff] = useState(true);
+  const [sessionId, setSessionId] = useState<string>();
+  const [assistantReply, setAssistantReply] = useState<string>("");
+  const [isLoading, setIsLoading] = useState(false);
+  const [agentMeta, setAgentMeta] = useState<{
+    weather?: string;
+    recommendedRoute?: string;
+  }>({});
+  const respondToSuggestion = useRespondToSuggestion(trip?.id || "");
+
+  const handleAskAi = async (prompt: string) => {
+    setIsLoading(true);
+    try {
+      const response = await travelApi.chatWithAssistant({
+        message: prompt,
+        sessionId,
+        context: trip
+          ? {
+              tripId: trip.id,
+              tripName: trip.name,
+              destination: trip.destination,
+              startDate: trip.startDate,
+              endDate: trip.endDate,
+            }
+          : undefined,
+      });
+
+      setSessionId(response.sessionId);
+      setAssistantReply(response.reply);
+      setAgentMeta({
+        weather: response.toolResults.weather
+          ? `${response.toolResults.weather.city || trip?.destination}: ${response.toolResults.weather.weather || "Unknown"}, ${response.toolResults.weather.temperature || "N/A"}°C`
+          : undefined,
+        recommendedRoute: response.toolResults.routeComparison?.recommended
+          ? `${response.toolResults.routeComparison.recommended.mode || "route"} · ${response.toolResults.routeComparison.recommended.duration || "N/A"}`
+          : undefined,
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-neutral-50 via-white to-purple-50/30">
@@ -26,8 +70,8 @@ export function AIAssistant({ onBack }: AIAssistantProps) {
                 <Globe className="w-4 h-4 text-white" />
               </div>
               <div>
-                <span className="text-sm font-semibold text-neutral-900">Tokyo Adventure</span>
-                <p className="text-xs text-neutral-500">April 15-22, 2026</p>
+                <span className="text-sm font-semibold text-neutral-900">{trip?.name || "Tokyo Adventure"}</span>
+                <p className="text-xs text-neutral-500">{trip ? `${trip.startDate} - ${trip.endDate}` : "April 15-22, 2026"}</p>
               </div>
             </div>
             <div className="w-32" />
@@ -75,26 +119,42 @@ export function AIAssistant({ onBack }: AIAssistantProps) {
         <div className="mb-12">
           <h2 className="text-lg font-semibold text-neutral-900 mb-4">Active Suggestions</h2>
           <div className="space-y-4">
-            <AISuggestionChip
-              title="Optimize Day 2 route"
-              description="Reorder activities to save 45 minutes of travel time and visit Tsukiji Market first when it's most active"
-              onAccept={() => setShowDiff(true)}
-              onReject={() => {}}
-            />
-
-            <AISuggestionChip
-              title="Add rest periods"
-              description="Your team prefers moderate pace. Consider adding 30-minute breaks between morning activities on Days 1, 3, and 5"
-              onAccept={() => {}}
-              onReject={() => {}}
-            />
-
-            <AISuggestionChip
-              title="Budget optimization"
-              description="Replace 'Ginza Shopping' with 'Nakamise Shopping Street' to save $70/person while maintaining cultural experience"
-              onAccept={() => {}}
-              onReject={() => {}}
-            />
+            {(trip?.aiSuggestions.length
+              ? trip.aiSuggestions
+              : [
+                  {
+                    id: "fallback-1",
+                    title: "Optimize Day 2 route",
+                    description: "Reorder activities to save 45 minutes of travel time and visit Tsukiji Market first when it's most active",
+                  },
+                  {
+                    id: "fallback-2",
+                    title: "Add rest periods",
+                    description: "Your team prefers moderate pace. Consider adding 30-minute breaks between morning activities on Days 1, 3, and 5",
+                  },
+                  {
+                    id: "fallback-3",
+                    title: "Budget optimization",
+                    description: "Replace 'Ginza Shopping' with 'Nakamise Shopping Street' to save $70/person while maintaining cultural experience",
+                  },
+                ]).map((suggestion) => (
+              <AISuggestionChip
+                key={suggestion.id}
+                title={suggestion.title}
+                description={suggestion.description}
+                onAccept={() => {
+                  setShowDiff(true);
+                  if (trip?.id) {
+                    respondToSuggestion.mutate({ suggestionId: suggestion.id, response: "accepted" });
+                  }
+                }}
+                onReject={() => {
+                  if (trip?.id) {
+                    respondToSuggestion.mutate({ suggestionId: suggestion.id, response: "dismissed" });
+                  }
+                }}
+              />
+            ))}
           </div>
         </div>
 
@@ -190,7 +250,8 @@ export function AIAssistant({ onBack }: AIAssistantProps) {
         <div className="mb-12">
           <h2 className="text-lg font-semibold text-neutral-900 mb-4">Ask AI</h2>
           <AIActionPanel
-            onSubmit={(prompt) => alert(`AI received: ${prompt}`)}
+            onSubmit={handleAskAi}
+            isLoading={isLoading}
             placeholder="Ask AI anything about your trip..."
             suggestions={[
               "Find vegetarian restaurants near Shibuya",
@@ -199,6 +260,21 @@ export function AIAssistant({ onBack }: AIAssistantProps) {
               "Add a day trip to Hakone",
             ]}
           />
+          {(assistantReply || agentMeta.weather || agentMeta.recommendedRoute) && (
+            <div className="mt-4 rounded-xl border border-neutral-200 bg-white p-5 space-y-3">
+              <div className="flex items-center justify-between gap-4">
+                <h3 className="text-sm font-semibold text-neutral-900">Latest AI Response</h3>
+                {sessionId && <span className="text-xs text-neutral-400">Session {sessionId}</span>}
+              </div>
+              {agentMeta.weather && (
+                <div className="text-xs text-neutral-500">Live weather: {agentMeta.weather}</div>
+              )}
+              {agentMeta.recommendedRoute && (
+                <div className="text-xs text-neutral-500">Recommended route: {agentMeta.recommendedRoute}</div>
+              )}
+              <div className="text-sm leading-6 text-neutral-700 whitespace-pre-wrap">{assistantReply}</div>
+            </div>
+          )}
         </div>
 
         {/* Recent AI Activity */}
