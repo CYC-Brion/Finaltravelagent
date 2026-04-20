@@ -1,0 +1,239 @@
+import { Globe, Sparkles, ArrowLeft, Clock, MapPin, DollarSign } from "lucide-react";
+import { useState } from "react";
+import { AIActionPanel } from "../components/helloworld/AIActionPanel";
+import { AISuggestionChip } from "../components/helloworld/AISuggestionChip";
+import { DiffCard } from "../components/helloworld/DiffCard";
+
+interface AIAssistantProps {
+  onBack: () => void;
+}
+
+export function AIAssistant({ onBack }: AIAssistantProps) {
+  const [showDiff, setShowDiff] = useState(true);
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-neutral-50 via-white to-purple-50/30">
+      {/* Header */}
+      <header className="border-b border-neutral-200 bg-white/80 backdrop-blur-sm">
+        <div className="max-w-5xl mx-auto px-8 py-4">
+          <div className="flex items-center justify-between">
+            <button onClick={onBack} className="flex items-center gap-2 text-neutral-600 hover:text-neutral-900">
+              <ArrowLeft className="w-4 h-4" />
+              <span className="text-sm font-medium">Back to workspace</span>
+            </button>
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary-500 to-primary-400 flex items-center justify-center">
+                <Globe className="w-4 h-4 text-white" />
+              </div>
+              <div>
+                <span className="text-sm font-semibold text-neutral-900">Tokyo Adventure</span>
+                <p className="text-xs text-neutral-500">April 15-22, 2026</p>
+              </div>
+            </div>
+            <div className="w-32" />
+          </div>
+        </div>
+      </header>
+
+      <div className="max-w-5xl mx-auto px-8 py-12">
+        {/* Hero */}
+        <div className="text-center mb-12">
+          <div className="inline-flex items-center justify-center w-20 h-20 rounded-2xl bg-gradient-to-br from-purple-500 to-pink-500 mb-6 shadow-xl">
+            <Sparkles className="w-10 h-10 text-white" />
+          </div>
+          <h1 className="text-4xl font-bold text-neutral-900 mb-3">AI Assistant</h1>
+          <p className="text-lg text-neutral-600 max-w-2xl mx-auto">
+            Let AI help optimize your itinerary, find alternatives, and solve planning challenges
+          </p>
+        </div>
+
+        {/* Quick Actions */}
+        <div className="mb-12">
+          <h2 className="text-lg font-semibold text-neutral-900 mb-4">Quick Actions</h2>
+          <div className="grid grid-cols-3 gap-4">
+            {[
+              { icon: MapPin, label: "Optimize route", desc: "Minimize travel time between activities" },
+              { icon: DollarSign, label: "Balance budget", desc: "Find cost-effective alternatives" },
+              { icon: Clock, label: "Add buffer time", desc: "Insert rest periods automatically" },
+              { icon: Sparkles, label: "Find alternatives", desc: "Suggest similar activities" },
+              { icon: MapPin, label: "Handle conflicts", desc: "Resolve scheduling issues" },
+              { icon: DollarSign, label: "Split by interest", desc: "Create parallel tracks" },
+            ].map((action, i) => (
+              <button
+                key={i}
+                className="p-5 bg-white rounded-xl border border-neutral-200 hover:border-primary-300 hover:shadow-md transition-all text-left"
+              >
+                <action.icon className="w-6 h-6 text-primary-600 mb-3" />
+                <h3 className="font-semibold text-neutral-900 mb-1">{action.label}</h3>
+                <p className="text-xs text-neutral-600">{action.desc}</p>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Active Suggestions */}
+        <div className="mb-12">
+          <h2 className="text-lg font-semibold text-neutral-900 mb-4">Active Suggestions</h2>
+          <div className="space-y-4">
+            <AISuggestionChip
+              title="Optimize Day 2 route"
+              description="Reorder activities to save 45 minutes of travel time and visit Tsukiji Market first when it's most active"
+              onAccept={() => setShowDiff(true)}
+              onReject={() => {}}
+            />
+
+            <AISuggestionChip
+              title="Add rest periods"
+              description="Your team prefers moderate pace. Consider adding 30-minute breaks between morning activities on Days 1, 3, and 5"
+              onAccept={() => {}}
+              onReject={() => {}}
+            />
+
+            <AISuggestionChip
+              title="Budget optimization"
+              description="Replace 'Ginza Shopping' with 'Nakamise Shopping Street' to save $70/person while maintaining cultural experience"
+              onAccept={() => {}}
+              onReject={() => {}}
+            />
+          </div>
+        </div>
+
+        {/* Itinerary Change Preview */}
+        {showDiff && (
+          <div className="mb-12">
+            <h2 className="text-lg font-semibold text-neutral-900 mb-4">Proposed Changes</h2>
+            <DiffCard
+              before={{
+                title: "Current Day 2 Schedule",
+                content: (
+                  <div className="space-y-3">
+                    <div className="flex items-start gap-3">
+                      <Clock className="w-4 h-4 text-neutral-400 mt-0.5" />
+                      <div>
+                        <div className="text-sm font-medium text-neutral-900">9:00 AM - Imperial Palace</div>
+                        <div className="text-xs text-neutral-500">2h visit • Free</div>
+                      </div>
+                    </div>
+                    <div className="flex items-start gap-3">
+                      <Clock className="w-4 h-4 text-neutral-400 mt-0.5" />
+                      <div>
+                        <div className="text-sm font-medium text-neutral-900">12:00 PM - Tsukiji Market</div>
+                        <div className="text-xs text-neutral-500">2h tour • $45/person</div>
+                      </div>
+                    </div>
+                    <div className="flex items-start gap-3">
+                      <Clock className="w-4 h-4 text-neutral-400 mt-0.5" />
+                      <div>
+                        <div className="text-sm font-medium text-neutral-900">3:00 PM - Ginza Shopping</div>
+                        <div className="text-xs text-neutral-500">3h • $100/person</div>
+                      </div>
+                    </div>
+                    <div className="mt-4 pt-3 border-t border-neutral-200">
+                      <div className="text-xs text-neutral-500">
+                        Total travel time: <span className="font-semibold text-neutral-700">1h 15min</span>
+                      </div>
+                    </div>
+                  </div>
+                ),
+              }}
+              after={{
+                title: "AI Optimized Schedule",
+                content: (
+                  <div className="space-y-3">
+                    <div className="flex items-start gap-3">
+                      <Clock className="w-4 h-4 text-primary-500 mt-0.5" />
+                      <div>
+                        <div className="text-sm font-semibold text-primary-900">8:00 AM - Tsukiji Market</div>
+                        <div className="text-xs text-primary-600">2h tour • $45/person</div>
+                        <div className="text-xs text-success-700 mt-1">✓ Catch morning fish auction</div>
+                      </div>
+                    </div>
+                    <div className="flex items-start gap-3">
+                      <Clock className="w-4 h-4 text-primary-500 mt-0.5" />
+                      <div>
+                        <div className="text-sm font-semibold text-primary-900">10:30 AM - Imperial Palace</div>
+                        <div className="text-xs text-primary-600">2h visit • Free</div>
+                        <div className="text-xs text-success-700 mt-1">✓ Only 15min from Tsukiji</div>
+                      </div>
+                    </div>
+                    <div className="flex items-start gap-3">
+                      <Clock className="w-4 h-4 text-primary-500 mt-0.5" />
+                      <div>
+                        <div className="text-sm font-semibold text-primary-900">1:30 PM - Ginza Shopping</div>
+                        <div className="text-xs text-primary-600">3h • $100/person</div>
+                        <div className="text-xs text-success-700 mt-1">✓ Walking distance</div>
+                      </div>
+                    </div>
+                    <div className="mt-4 pt-3 border-t border-primary-200">
+                      <div className="grid grid-cols-2 gap-4">
+                        <div className="text-xs text-primary-700">
+                          Total travel time: <span className="font-semibold">30min</span>
+                        </div>
+                        <div className="text-xs text-success-700">
+                          ✓ Saves <span className="font-semibold">45 minutes</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ),
+              }}
+              onAccept={() => {
+                setShowDiff(false);
+                alert("Change accepted! Applied to Day 2.");
+              }}
+              onReject={() => setShowDiff(false)}
+            />
+          </div>
+        )}
+
+        {/* AI Chat Interface */}
+        <div className="mb-12">
+          <h2 className="text-lg font-semibold text-neutral-900 mb-4">Ask AI</h2>
+          <AIActionPanel
+            onSubmit={(prompt) => alert(`AI received: ${prompt}`)}
+            placeholder="Ask AI anything about your trip..."
+            suggestions={[
+              "Find vegetarian restaurants near Shibuya",
+              "Suggest rainy day activities",
+              "What's the best time to visit Tokyo Tower?",
+              "Add a day trip to Hakone",
+            ]}
+          />
+        </div>
+
+        {/* Recent AI Activity */}
+        <div>
+          <h2 className="text-lg font-semibold text-neutral-900 mb-4">Recent AI Activity</h2>
+          <div className="bg-white rounded-xl border border-neutral-200 divide-y divide-neutral-200">
+            {[
+              { action: "Optimized route for Day 3", result: "Saved 30 minutes", time: "5 min ago", accepted: true },
+              { action: "Suggested alternative to Robot Restaurant", result: "Found 3 options", time: "1 hour ago", accepted: false },
+              { action: "Added buffer time to Day 1", result: "3 breaks inserted", time: "2 hours ago", accepted: true },
+              { action: "Generated budget breakdown", result: "Per-person analysis", time: "3 hours ago", accepted: true },
+            ].map((activity, i) => (
+              <div key={i} className="p-4 flex items-center gap-4">
+                <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
+                  activity.accepted ? "bg-success-100" : "bg-neutral-100"
+                }`}>
+                  <Sparkles className={`w-5 h-5 ${activity.accepted ? "text-success-600" : "text-neutral-400"}`} />
+                </div>
+                <div className="flex-1">
+                  <div className="font-medium text-neutral-900 text-sm">{activity.action}</div>
+                  <div className="text-xs text-neutral-500">{activity.result}</div>
+                </div>
+                <div className="text-right">
+                  <div className={`text-xs font-medium mb-1 ${
+                    activity.accepted ? "text-success-600" : "text-neutral-500"
+                  }`}>
+                    {activity.accepted ? "Accepted" : "Dismissed"}
+                  </div>
+                  <div className="text-xs text-neutral-400">{activity.time}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
