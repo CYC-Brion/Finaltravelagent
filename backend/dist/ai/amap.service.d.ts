@@ -1,3 +1,4 @@
+import type { ToolDefinition } from "./llm.service";
 type Coordinates = {
     longitude: number;
     latitude: number;
@@ -60,4 +61,5 @@ export declare class AmapService {
     } | null>;
     private fetchRoute;
 }
+export declare const amapTools: ToolDefinition[];
 export {};

@@ -6,7 +6,7 @@ export class AiController {
   constructor(private readonly aiService: AiService) {}
 
   @Post("chat")
-  chat(
+  async chat(
     @Body()
     body: {
       message: string;
@@ -14,7 +14,7 @@ export class AiController {
       context?: Record<string, unknown>;
     },
   ) {
-    return this.aiService.chat(body.message, body.sessionId, body.context || {});
+    return await this.aiService.chat(body.message, body.sessionId, body.context || {});
   }
 
   @Get("sessions/:sessionId/history")

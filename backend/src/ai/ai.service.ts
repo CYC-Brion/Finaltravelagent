@@ -1,6 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import { AmapService } from "./amap.service";
-import { LlmService } from "./llm.service";
+import { LlmService, ToolDefinition, ToolCall, ToolCallResult } from "./llm.service";
+import { amapTools } from "./amap.service";
 
 type LlmMessage = {
   role: "system" | "user" | "assistant";
@@ -34,66 +35,116 @@ export class AiService {
   async chat(message: string, sessionId?: string, context: AgentContext = {}) {
     const activeSessionId = sessionId || `session_${Date.now()}`;
     const history = this.sessions.get(activeSessionId) || [];
-    const destination = this.resolveDestination(message, context);
-
-    const [weather, attractions, restaurants, routeComparison] = await Promise.all([
-      destination ? this.amapService.getWeather(destination) : Promise.resolve(null),
-      destination
-        ? this.amapService.searchPlaces(destination, `${destination} attractions`)
-        : Promise.resolve([]),
-      destination
-        ? this.amapService.searchPlaces(destination, `${destination} restaurants`)
-        : Promise.resolve([]),
-      context.origin && context.destinationAddress
-        ? this.amapService.compareRoutes(
-            String(context.origin),
-            String(context.destinationAddress),
-            destination,
-          )
-        : Promise.resolve(null),
-    ]);
-
-    const toolResults = {
-      amapConfigured: this.amapService.isConfigured(),
-      llmConfigured: this.llmService.isConfigured(),
-      destination,
-      weather,
-      attractions,
-      restaurants,
-      routeComparison,
-    };
 
     const systemPrompt = [
       "You are TravelPal's collaborative AI travel agent.",
+      "",
       "Answer in concise, practical English unless the user writes mostly Chinese, then answer in Chinese.",
-      "Use the provided live map and weather data when available.",
-      "Prefer actionable planning advice over generic inspiration.",
-    ].join(" ");
+      "",
+      "When giving location suggestions:",
+      "- Include specific name, address, and why it's recommended",
+      "- Mention actual transportation with estimated time (e.g. '10 min walk or 2 subway stops')",
+      "- Include approximate cost (e.g. '¥50 per person average')",
+      "- Consider weather in recommendations ('due to rain forecast, indoor venues are better')",
+      "",
+      "When comparing options:",
+      "- Provide pros/cons with specific details",
+      "- Use real data from the provided tool results",
+      "- Never give generic advice without specific context",
+      "",
+      "If tool data is unavailable, say so explicitly and give best-effort suggestions.",
+    ].join("\n");
 
-    const userPrompt = [
-      `User request: ${message}`,
-      `Trip context: ${JSON.stringify(context)}`,
-      `Tool results: ${JSON.stringify(toolResults)}`,
-      "Give a practical response with short sections when useful. Mention when data is inferred or unavailable.",
-    ].join("\n\n");
-
-    const llmMessages: LlmMessage[] = [
+    const llmMessages: Parameters<LlmService["chat"]>[0] = [
       { role: "system", content: systemPrompt },
       ...history.slice(-6).map(
-        (item): LlmMessage => ({
+        (item): { role: "user" | "assistant"; content: string; name?: string } => ({
           role: item.role === "assistant" ? "assistant" : "user",
           content: item.content,
         }),
       ),
-      { role: "user", content: userPrompt },
+      { role: "user", content: message },
     ];
 
-    let reply = (await this.llmService.chat(llmMessages)) || "";
+    let toolResults: Record<string, unknown> = {};
+    const maxToolCalls = 5;
+    let toolCallCount = 0;
 
-    if (!reply) {
-      reply = this.buildFallbackReply(message, toolResults, context);
+    while (toolCallCount < maxToolCalls) {
+      const { content, toolCalls } = await this.llmService.chat(
+        llmMessages,
+        amapTools,
+        "auto",
+      );
+
+      if (content) {
+        const reply = content;
+
+        const nextHistory: SessionMessage[] = [
+          ...history,
+          { role: "user", content: message, timestamp: new Date().toISOString() },
+          { role: "assistant", content: reply, timestamp: new Date().toISOString() },
+        ];
+        this.sessions.set(activeSessionId, nextHistory);
+
+        return {
+          sessionId: activeSessionId,
+          reply,
+          toolResults,
+          history: nextHistory,
+          timestamp: new Date().toISOString(),
+        };
+      }
+
+      if (!toolCalls || toolCalls.length === 0) {
+        const reply = this.buildFallbackReply(message, toolResults, context);
+        const nextHistory: SessionMessage[] = [
+          ...history,
+          { role: "user", content: message, timestamp: new Date().toISOString() },
+          { role: "assistant", content: reply, timestamp: new Date().toISOString() },
+        ];
+        this.sessions.set(activeSessionId, nextHistory);
+
+        return {
+          sessionId: activeSessionId,
+          reply,
+          toolResults,
+          history: nextHistory,
+          timestamp: new Date().toISOString(),
+        };
+      }
+
+      const toolCallsWithResults: Array<{ toolCall: ToolCall; result: unknown }> = [];
+
+      for (const toolCall of toolCalls) {
+        const result = await this.executeToolCall(toolCall, context);
+        toolResults[toolCall.name] = result;
+        toolCallsWithResults.push({ toolCall, result });
+      }
+
+      llmMessages.push({
+        role: "assistant",
+        content: null,
+        tool_calls: toolCalls.map((tc) => ({
+          id: tc.id,
+          type: "function" as const,
+          function: { name: tc.name, arguments: tc.arguments },
+        })),
+      } as Parameters<LlmService["chat"]>[0][number]);
+
+      for (const { toolCall, result } of toolCallsWithResults) {
+        llmMessages.push({
+          role: "tool",
+          content: JSON.stringify(result),
+          name: toolCall.name,
+          tool_call_id: toolCall.id,
+        } as Parameters<LlmService["chat"]>[0][number]);
+      }
+
+      toolCallCount++;
     }
 
+    const reply = "抱歉，我需要更多时间处理您的请求，请稍后再试。";
     const nextHistory: SessionMessage[] = [
       ...history,
       { role: "user", content: message, timestamp: new Date().toISOString() },
@@ -108,6 +159,45 @@ export class AiService {
       history: nextHistory,
       timestamp: new Date().toISOString(),
     };
+  }
+
+  private async executeToolCall(toolCall: ToolCall, context: AgentContext): Promise<unknown> {
+    const destination =
+      context.destination ||
+      (typeof context.trip === "object" && context.trip && "destination" in context.trip
+        ? (context.trip as { destination?: string }).destination
+        : undefined);
+
+    switch (toolCall.name) {
+      case "get_weather": {
+        const args = JSON.parse(toolCall.arguments);
+        return await this.amapService.getWeather(args.city || destination || "");
+      }
+      case "search_attractions": {
+        const args = JSON.parse(toolCall.arguments);
+        return await this.amapService.searchPlaces(
+          args.destination || destination || "",
+          `${args.destination || destination} attractions`,
+        );
+      }
+      case "search_restaurants": {
+        const args = JSON.parse(toolCall.arguments);
+        return await this.amapService.searchPlaces(
+          args.destination || destination || "",
+          `${args.destination || destination} restaurants`,
+        );
+      }
+      case "compare_routes": {
+        const args = JSON.parse(toolCall.arguments);
+        return await this.amapService.compareRoutes(
+          args.origin,
+          args.destination,
+          args.city || destination,
+        );
+      }
+      default:
+        return { error: `Unknown tool: ${toolCall.name}` };
+    }
   }
 
   getHistory(sessionId: string) {
@@ -168,7 +258,7 @@ export class AiService {
         'Return JSON with shape {"itinerary":[{"day":1,"dateLabel":"Day 1","activities":[{"time":"09:00 AM","name":"...","location":"...","duration":"2h","cost":0,"status":"proposed"}]}],"aiSuggestions":[{"title":"...","description":"...","status":"pending"}],"insights":["..."]}',
       ].join("\n\n");
 
-      const raw = await this.llmService.chat([
+      const rawResult = await this.llmService.chat([
         {
           role: "system",
           content:
@@ -176,6 +266,8 @@ export class AiService {
         },
         { role: "user", content: prompt },
       ]);
+
+      const raw = rawResult.content;
 
       if (!raw) {
         return fallbackDraft;
@@ -270,13 +362,13 @@ export class AiService {
     ].join("\n\n");
 
     const aiSuggestion =
-      (await this.llmService.chat([
+      ((await this.llmService.chat([
         {
           role: "system",
           content: "You are a travel operations assistant. Be concise and practical.",
         },
         { role: "user", content: replanPrompt },
-      ])) ||
+      ])).content) ||
       this.buildFallbackOnTripSuggestion(weather);
 
     return {

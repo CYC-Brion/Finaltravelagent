@@ -6,7 +6,7 @@ var __decorate = (this && this.__decorate) || function (decorators, target, key,
     return c > 3 && r && Object.defineProperty(target, key, r), r;
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.AmapService = void 0;
+exports.amapTools = exports.AmapService = void 0;
 const common_1 = require("@nestjs/common");
 let AmapService = class AmapService {
     constructor() {
@@ -173,4 +173,64 @@ exports.AmapService = AmapService;
 exports.AmapService = AmapService = __decorate([
     (0, common_1.Injectable)()
 ], AmapService);
+exports.amapTools = [
+    {
+        type: "function",
+        function: {
+            name: "get_weather",
+            description: "获取目的地实时天气，包括温度、湿度、天气状况",
+            parameters: {
+                type: "object",
+                properties: {
+                    city: { type: "string", description: "城市名称，如'东京'、'北京'" },
+                },
+                required: ["city"],
+            },
+        },
+    },
+    {
+        type: "function",
+        function: {
+            name: "search_attractions",
+            description: "搜索目的地的热门景点和旅游活动",
+            parameters: {
+                type: "object",
+                properties: {
+                    destination: { type: "string", description: "目的地城市或地区名称" },
+                },
+                required: ["destination"],
+            },
+        },
+    },
+    {
+        type: "function",
+        function: {
+            name: "search_restaurants",
+            description: "搜索目的地的餐厅和美食地点",
+            parameters: {
+                type: "object",
+                properties: {
+                    destination: { type: "string", description: "目的地城市或地区名称" },
+                },
+                required: ["destination"],
+            },
+        },
+    },
+    {
+        type: "function",
+        function: {
+            name: "compare_routes",
+            description: "比较两个地点之间的出行方案（驾车/公共交通/步行），返回各方案的距离、耗时和费用",
+            parameters: {
+                type: "object",
+                properties: {
+                    origin: { type: "string", description: "出发地地址或地标" },
+                    destination: { type: "string", description: "目的地地址或地标" },
+                    city: { type: "string", description: "所在城市名称（用于辅助定位）" },
+                },
+                required: ["origin", "destination"],
+            },
+        },
+    },
+];
 //# sourceMappingURL=amap.service.js.map

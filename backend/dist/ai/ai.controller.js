@@ -19,8 +19,8 @@ let AiController = class AiController {
     constructor(aiService) {
         this.aiService = aiService;
     }
-    chat(body) {
-        return this.aiService.chat(body.message, body.sessionId, body.context || {});
+    async chat(body) {
+        return await this.aiService.chat(body.message, body.sessionId, body.context || {});
     }
     getHistory(sessionId) {
         return this.aiService.getHistory(sessionId);
@@ -35,7 +35,7 @@ __decorate([
     __param(0, (0, common_1.Body)()),
     __metadata("design:type", Function),
     __metadata("design:paramtypes", [Object]),
-    __metadata("design:returntype", void 0)
+    __metadata("design:returntype", Promise)
 ], AiController.prototype, "chat", null);
 __decorate([
     (0, common_1.Get)("sessions/:sessionId/history"),
