@@ -34,7 +34,10 @@ const statusConfig: Record<
 };
 
 export function StatusChip({ status, className }: StatusChipProps) {
-  const config = statusConfig[status];
+  const config = statusConfig[status] || {
+    label: status || "Unknown",
+    className: "bg-neutral-100 text-neutral-700 border-neutral-200"
+  };
 
   return (
     <span

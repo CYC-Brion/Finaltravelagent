@@ -114,6 +114,11 @@ let TripsService = class TripsService {
         const trip = this.getTrip(tripId);
         if (!trip)
             return null;
+        const allActivities = trip.itinerary.flatMap((day) => day.activities);
+        const featuredActivities = allActivities.slice(0, 3).map((activity) => activity.name);
+        const totalSpent = trip.expenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
+        const excerpt = trip.summary?.diaryEntries?.[0]?.content ||
+            `A ${trip.itinerary.length}-day collaborative trip through ${trip.destination} with highlights like ${featuredActivities.join(", ")}.`;
         const post = {
             id: `community_${Date.now()}`,
             tripId,
@@ -125,6 +130,10 @@ let TripsService = class TripsService {
             comments: 0,
             saves: 0,
             image: "https://images.unsplash.com/photo-1685053361005-17fee61b704e?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&q=80&w=1080",
+            excerpt,
+            featuredActivities,
+            totalSpent,
+            duration: trip.itinerary.length,
         };
         trip.publishedCommunityPostId = post.id;
         mock_store_1.mockStore.communityPosts.unshift(post);

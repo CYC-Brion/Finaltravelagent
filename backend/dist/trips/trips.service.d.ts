@@ -68,6 +68,10 @@ export declare class TripsService {
         comments: number;
         saves: number;
         image: string;
+        excerpt: any;
+        featuredActivities: any;
+        totalSpent: any;
+        duration: any;
     } | null;
     getOnTripToday(tripId: string): Promise<{
         currentDay: any;

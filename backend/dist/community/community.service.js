@@ -11,7 +11,14 @@ const common_1 = require("@nestjs/common");
 const mock_store_1 = require("../common/mock-store");
 let CommunityService = class CommunityService {
     listPosts() {
-        return mock_store_1.mockStore.communityPosts;
+        return mock_store_1.mockStore.communityPosts.map((post) => ({
+            ...post,
+            excerpt: post.excerpt ||
+                `A shared itinerary for ${post.location} featuring ${(post.featuredActivities || []).slice(0, 2).join(", ") || "local highlights"}.`,
+            featuredActivities: post.featuredActivities || [],
+            totalSpent: post.totalSpent || 0,
+            duration: post.duration || 0,
+        }));
     }
 };
 exports.CommunityService = CommunityService;
