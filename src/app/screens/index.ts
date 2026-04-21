@@ -5,5 +5,3 @@ export { CoCreateWorkspace } from "./CoCreateWorkspace";
 export { AIAssistant } from "./AIAssistant";
 export { ExpenseTracking } from "./ExpenseTracking";
 export { TripSummary } from "./TripSummary";
-export { StateShowcase } from "./StateShowcase";
-export { PrototypeJourney } from "./PrototypeJourney";
