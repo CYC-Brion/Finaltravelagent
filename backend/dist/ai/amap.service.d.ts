@@ -13,6 +13,9 @@ export declare class AmapService {
     private readonly transitRouteUrl;
     private readonly walkingRouteUrl;
     private readonly poiTextUrl;
+    private readonly cityNameMap;
+    private normalizeCityName;
+    private isValidChineseCity;
     isConfigured(): boolean;
     geocode(address: string, city?: string): Promise<Coordinates | null>;
     getWeather(city: string): Promise<{

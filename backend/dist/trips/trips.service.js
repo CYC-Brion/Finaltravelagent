@@ -101,6 +101,7 @@ let TripsService = class TripsService {
             insights: generated.insights || [],
             weather: generated.weather || null,
             attractions: generated.attractions || [],
+            hotels: generated.hotels || [],
         };
         trip.activityFeed.unshift({
             id: `feed_${Date.now()}`,
@@ -157,6 +158,7 @@ let TripsService = class TripsService {
                 insights: [],
                 weather: null,
                 attractions: [],
+                hotels: [],
             },
         };
     }

@@ -24,6 +24,8 @@ const ai_controller_1 = require("./ai/ai.controller");
 const ai_service_1 = require("./ai/ai.service");
 const amap_service_1 = require("./ai/amap.service");
 const llm_service_1 = require("./ai/llm.service");
+const serpapi_hotels_service_1 = require("./ai/serpapi-hotels.service");
+const memory_service_1 = require("./ai/memory.service");
 let AppModule = class AppModule {
 };
 exports.AppModule = AppModule;
@@ -48,6 +50,8 @@ exports.AppModule = AppModule = __decorate([
             ai_service_1.AiService,
             amap_service_1.AmapService,
             llm_service_1.LlmService,
+            serpapi_hotels_service_1.SerpapiHotelsService,
+            memory_service_1.MemoryService,
         ],
     })
 ], AppModule);

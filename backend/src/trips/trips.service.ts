@@ -92,6 +92,7 @@ export class TripsService {
       insights: generated.insights || [],
       weather: generated.weather || null,
       attractions: generated.attractions || [],
+      hotels: generated.hotels || [],
     };
     trip.activityFeed.unshift({
       id: `feed_${Date.now()}`,
@@ -150,6 +151,7 @@ export class TripsService {
         insights: [],
         weather: null,
         attractions: [],
+        hotels: [],
       },
     };
   }

@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Navigate, Route, Routes, useNavigate, useParams } from "react-router-dom";
 import { ProtectedRoute } from "../guards/ProtectedRoute";
 import { Landing } from "../screens/Landing";
@@ -11,9 +11,10 @@ import { OnTripDashboard } from "../screens/OnTripDashboard";
 import { ExpenseTracking } from "../screens/ExpenseTracking";
 import { TripSummary } from "../screens/TripSummary";
 import { CommunityPage } from "../screens/CommunityPage";
+import { HotelRecommendations } from "../screens/HotelRecommendations";
 import { LoginPage } from "../screens/auth/LoginPage";
 import { AcceptInvitationPage } from "../screens/auth/AcceptInvitationPage";
-import { useAddComment, useAddDiaryEntry, useAddExpense, useAiDraft, useCheckInActivity, useCommunityPosts, useCreateActivity, useCreateTrip, useGenerateDraft, useMarkSettlementPaid, useOnTripToday, usePublishTrip, useRespondToSuggestion, useTrip, useTrips, useVoteOnActivity } from "../hooks/useTrips";
+import { useAddComment, useAddDiaryEntry, useAddExpense, useAiDraft, useCheckInActivity, useCommunityPosts, useCreateActivity, useCreateTrip, useGenerateDraft, useHotelRecommendations, useMarkSettlementPaid, useOnTripToday, usePublishTrip, useRespondToSuggestion, useTrip, useTrips, useVoteOnActivity } from "../hooks/useTrips";
 import type { CreateTripInput, TripStatus } from "@/domain/types";
 import { travelApi } from "@/lib/api/travelApi";
 
@@ -121,6 +122,7 @@ function DraftPage() {
   return (
     <AIDraft
       onContinue={() => navigate(`/trips/${tripId}/workspace`)}
+      onViewHotels={() => navigate(`/trips/${tripId}/hotels`)}
       onRegenerate={() => generateDraft.mutate()}
       onSuggestionResponse={(suggestionId, response) =>
         respondToSuggestion.mutate({ suggestionId, response })
@@ -136,6 +138,7 @@ function WorkspacePage() {
   const navigate = useNavigate();
   const { tripId = "" } = useParams();
   const tripQuery = useTrip(tripId);
+  const aiDraftQuery = useAiDraft(tripId);
   const voteMutation = useVoteOnActivity(tripId);
   const commentMutation = useAddComment(tripId);
   const createActivityMutation = useCreateActivity(tripId);
@@ -148,6 +151,7 @@ function WorkspacePage() {
       onVote={(activityId, direction) => voteMutation.mutate({ activityId, direction })}
       onComment={(activityId, body) => commentMutation.mutate({ activityId, body })}
       onCreateActivity={(input) => createActivityMutation.mutate(input)}
+      hotelRecommendations={aiDraftQuery.data?.aiDraftMeta.hotels || []}
       voting={voteMutation.isPending}
       commenting={commentMutation.isPending}
       creatingActivity={createActivityMutation.isPending}
@@ -156,7 +160,61 @@ function WorkspacePage() {
         if (page === "ontrip") navigate(`/trips/${tripId}/on-trip`);
         if (page === "expense") navigate(`/trips/${tripId}/expenses`);
         if (page === "summary") navigate(`/trips/${tripId}/summary`);
+        if (page === "hotels") navigate(`/trips/${tripId}/hotels`);
       }}
+    />
+  );
+}
+
+function HotelRecommendationsPage() {
+  const navigate = useNavigate();
+  const { tripId = "" } = useParams();
+  const tripQuery = useTrip(tripId);
+  const createActivityMutation = useCreateActivity(tripId);
+  const [filters, setFilters] = useState<{
+    minRating?: number;
+    minPrice?: number;
+    maxPrice?: number;
+    maxResults?: number;
+  }>({ minRating: 4, maxResults: 8 });
+
+  const hotelQuery = useHotelRecommendations({
+    destination: tripQuery.data?.destination,
+    checkInDate: tripQuery.data?.startDate,
+    checkOutDate: tripQuery.data?.endDate,
+    adults: Math.max(1, tripQuery.data?.members?.length || 2),
+    ...filters,
+  });
+
+  if (!tripQuery.data) return <div className="p-10">Loading hotels...</div>;
+
+  return (
+    <HotelRecommendations
+      trip={tripQuery.data}
+      hotels={hotelQuery.data?.hotels || []}
+      loading={hotelQuery.isLoading || hotelQuery.isFetching}
+      onBack={() => navigate(`/trips/${tripId}/workspace`)}
+      onApplyFilters={(nextFilters) => setFilters(nextFilters)}
+      onCreateVote={(hotel) =>
+        createActivityMutation.mutate({
+          dayNumber: 1,
+          time: "9:30 PM",
+          name: `Hotel vote: ${hotel.name}`,
+          location: hotel.address || tripQuery.data.destination,
+          duration: "0.5h",
+          cost: 0,
+        })
+      }
+      onInsertStay={(hotel) =>
+        createActivityMutation.mutate({
+          dayNumber: 1,
+          time: "8:00 PM",
+          name: `Check-in: ${hotel.name}`,
+          location: hotel.address || tripQuery.data.destination,
+          duration: "1h",
+          cost: hotel.nightlyPrice || 0,
+        })
+      }
     />
   );
 }
@@ -256,6 +314,7 @@ export function AppRoutes() {
         <Route path="/trips/new" element={<TripWizardPage />} />
         <Route path="/trips/:tripId/draft" element={<DraftPage />} />
         <Route path="/trips/:tripId/workspace" element={<WorkspacePage />} />
+        <Route path="/trips/:tripId/hotels" element={<HotelRecommendationsPage />} />
         <Route path="/trips/:tripId/ai" element={<AssistantPage />} />
         <Route path="/trips/:tripId/on-trip" element={<OnTripPage />} />
         <Route path="/trips/:tripId/expenses" element={<ExpensesPage />} />
