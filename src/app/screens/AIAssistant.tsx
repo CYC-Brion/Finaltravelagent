@@ -1,5 +1,5 @@
-import { Globe, Sparkles, ArrowLeft, Clock, MapPin, DollarSign } from "lucide-react";
-import { useState } from "react";
+import { Globe, Sparkles, ArrowLeft, Clock, MapPin, DollarSign, Loader2 } from "lucide-react";
+import { useState, useRef } from "react";
 import { AIActionPanel } from "../components/helloworld/AIActionPanel";
 import { AISuggestionChip } from "../components/helloworld/AISuggestionChip";
 import { DiffCard } from "../components/helloworld/DiffCard";
@@ -12,43 +12,109 @@ interface AIAssistantProps {
   trip?: Trip;
 }
 
+type ToolCallStatus = {
+  tool: string;
+  status: "calling" | "done";
+  result?: unknown;
+};
+
+const TOOL_LABELS: Record<string, string> = {
+  get_weather: "查询天气",
+  search_attractions: "搜索景点",
+  search_restaurants: "搜索餐厅",
+  search_hotels: "搜索酒店",
+  compare_routes: "比较路线",
+};
+
 export function AIAssistant({ onBack, trip }: AIAssistantProps) {
   const [showDiff, setShowDiff] = useState(true);
   const [sessionId, setSessionId] = useState<string>();
   const [assistantReply, setAssistantReply] = useState<string>("");
   const [isLoading, setIsLoading] = useState(false);
+  const [toolCalls, setToolCalls] = useState<ToolCallStatus[]>([]);
+  const [currentStatus, setCurrentStatus] = useState<string>("");
   const [agentMeta, setAgentMeta] = useState<{
     weather?: string;
     recommendedRoute?: string;
   }>({});
+  const abortControllerRef = useRef<AbortController | null>(null);
   const respondToSuggestion = useRespondToSuggestion(trip?.id || "");
 
   const handleAskAi = async (prompt: string) => {
-    setIsLoading(true);
-    try {
-      const response = await travelApi.chatWithAssistant({
-        message: prompt,
-        sessionId,
-        context: trip
-          ? {
-              tripId: trip.id,
-              tripName: trip.name,
-              destination: trip.destination,
-              startDate: trip.startDate,
-              endDate: trip.endDate,
-            }
-          : undefined,
-      });
+    // Cancel any existing request
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    abortControllerRef.current = new AbortController();
 
-      setSessionId(response.sessionId);
-      setAssistantReply(response.reply);
-      setAgentMeta({
-        weather: response.toolResults.weather
-          ? `${response.toolResults.weather.city || trip?.destination}: ${response.toolResults.weather.weather || "Unknown"}, ${response.toolResults.weather.temperature || "N/A"}°C`
-          : undefined,
-        recommendedRoute: response.toolResults.routeComparison?.recommended
-          ? `${response.toolResults.routeComparison.recommended.mode || "route"} · ${response.toolResults.routeComparison.recommended.duration || "N/A"}`
-          : undefined,
+    setIsLoading(true);
+    setAssistantReply("");
+    setToolCalls([]);
+    setCurrentStatus("正在思考...");
+    setAgentMeta({});
+
+    try {
+      const newSessionId = sessionId || `session_${Date.now()}`;
+
+      await travelApi.chatWithAssistantStream({
+        input: {
+          message: prompt,
+          sessionId: newSessionId,
+          context: trip
+            ? {
+                tripId: trip.id,
+                tripName: trip.name,
+                destination: trip.destination,
+                startDate: trip.startDate,
+                endDate: trip.endDate,
+              }
+            : undefined,
+        },
+        callbacks: {
+          onToolCall: (tool, args) => {
+            setToolCalls((prev) => [...prev, { tool, status: "calling" }]);
+            setCurrentStatus(`正在${TOOL_LABELS[tool] || tool}...`);
+          },
+          onToolResult: (tool, result) => {
+            setToolCalls((prev) =>
+              prev.map((tc) =>
+                tc.tool === tool && tc.status === "calling"
+                  ? { ...tc, status: "done", result }
+                  : tc
+              )
+            );
+
+            // Update agentMeta with tool results
+            if (tool === "get_weather" && result && typeof result === "object") {
+              const weather = result as { city?: string; weather?: string; temperature?: string };
+              setAgentMeta((prev) => ({
+                ...prev,
+                weather: `${weather.city || trip?.destination}: ${weather.weather || "Unknown"}, ${weather.temperature || "N/A"}°C`,
+              }));
+            }
+            if (tool === "compare_routes" && result && typeof result === "object") {
+              const routes = result as { recommended?: { mode?: string; duration?: string } };
+              if (routes.recommended) {
+                setAgentMeta((prev) => ({
+                  ...prev,
+                  recommendedRoute: `${routes.recommended.mode || "route"} · ${routes.recommended.duration || "N/A"}`,
+                }));
+              }
+            }
+          },
+          onChunk: (content) => {
+            setAssistantReply(content);
+            setCurrentStatus("AI思考中...");
+          },
+          onDone: () => {
+            setSessionId(newSessionId);
+            setCurrentStatus("");
+          },
+          onError: (error) => {
+            console.error("Stream error:", error);
+            setCurrentStatus(`错误: ${error}`);
+          },
+        },
       });
     } finally {
       setIsLoading(false);
@@ -260,17 +326,53 @@ export function AIAssistant({ onBack, trip }: AIAssistantProps) {
               "Add a day trip to Hakone",
             ]}
           />
-          {(assistantReply || agentMeta.weather || agentMeta.recommendedRoute) && (
+
+          {/* Streaming Status */}
+          {(isLoading || currentStatus) && (
+            <div className="mt-4 rounded-xl border border-primary-200 bg-primary-50/50 p-4">
+              <div className="flex items-center gap-3 mb-3">
+                <Loader2 className="w-4 h-4 text-primary-600 animate-spin" />
+                <span className="text-sm font-medium text-primary-700">{currentStatus || "AI思考中..."}</span>
+              </div>
+
+              {/* Tool Calls Progress */}
+              {toolCalls.length > 0 && (
+                <div className="space-y-2">
+                  {toolCalls.map((tc, i) => (
+                    <div key={i} className="flex items-center gap-2 text-xs">
+                      {tc.status === "calling" ? (
+                        <>
+                          <Loader2 className="w-3 h-3 text-primary-500 animate-spin" />
+                          <span className="text-neutral-600">正在{TOOL_LABELS[tc.tool] || tc.tool}...</span>
+                        </>
+                      ) : (
+                        <>
+                          <span className="text-success-600">✓</span>
+                          <span className="text-success-700">{TOOL_LABELS[tc.tool] || tc.tool}完成</span>
+                        </>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {(assistantReply || agentMeta.weather || agentMeta.recommendedRoute) && !isLoading && (
             <div className="mt-4 rounded-xl border border-neutral-200 bg-white p-5 space-y-3">
               <div className="flex items-center justify-between gap-4">
                 <h3 className="text-sm font-semibold text-neutral-900">Latest AI Response</h3>
                 {sessionId && <span className="text-xs text-neutral-400">Session {sessionId}</span>}
               </div>
               {agentMeta.weather && (
-                <div className="text-xs text-neutral-500">Live weather: {agentMeta.weather}</div>
+                <div className="inline-flex items-center gap-1.5 px-2 py-1 bg-blue-50 rounded text-xs text-blue-700">
+                  <span>🌤️</span> <span>{agentMeta.weather}</span>
+                </div>
               )}
               {agentMeta.recommendedRoute && (
-                <div className="text-xs text-neutral-500">Recommended route: {agentMeta.recommendedRoute}</div>
+                <div className="inline-flex items-center gap-1.5 px-2 py-1 bg-green-50 rounded text-xs text-green-700">
+                  <span>🗺️</span> <span>{agentMeta.recommendedRoute}</span>
+                </div>
               )}
               <div className="text-sm leading-6 text-neutral-700 whitespace-pre-wrap">{assistantReply}</div>
             </div>

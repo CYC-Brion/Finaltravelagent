@@ -146,6 +146,36 @@ export interface AgentChatMessage {
   timestamp: string;
 }
 
+export interface HotelRecommendation {
+  id: string;
+  name: string;
+  address?: string;
+  district?: string;
+  latitude?: number;
+  longitude?: number;
+  rating?: number;
+  reviews?: number;
+  nightlyPrice?: number;
+  totalPrice?: number;
+  currency: string;
+  source?: string;
+  sourceUrl?: string;
+  transportMinutes?: number;
+  rankScore?: number;
+  rankReason?: string;
+}
+
+export interface HotelSearchResponse {
+  configured: boolean;
+  reason?: string;
+  destination?: string;
+  checkInDate?: string;
+  checkOutDate?: string;
+  currency?: string;
+  strategy?: string;
+  hotels: HotelRecommendation[];
+}
+
 export interface AgentChatResponse {
   sessionId: string;
   reply: string;
@@ -171,6 +201,7 @@ export interface AgentChatResponse {
         duration?: string;
       } | null;
     } | null;
+    search_hotels?: HotelSearchResponse | null;
   };
 }
 
@@ -213,6 +244,7 @@ export interface AiDraftData {
       type?: string;
       location?: string;
     }>;
+    hotels: HotelRecommendation[];
   };
 }
 

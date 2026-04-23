@@ -91,3 +91,17 @@ model Expense {
   dateLabel    String
   trip         Trip     @relation(fields: [tripId], references: [id])
 }
+
+model TripMemory {
+  id           String   @id @default(cuid())
+  tripId       String
+  userId       String?
+  memoryType   String   // "preference" | "itinerary_change" | "constraint"
+  content      String   // JSON: { "key": "pace", "value": "relaxed" }
+  source       String   // "ai_suggestion" | "user_feedback" | "vote_result"
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([tripId])
+  @@index([userId])
+}

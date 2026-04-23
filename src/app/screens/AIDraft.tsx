@@ -16,6 +16,7 @@ import type { AiDraftData, Trip } from "@/domain/types";
 
 interface AIDraftProps {
   onContinue: () => void;
+  onViewHotels?: () => void;
   onRegenerate?: () => void;
   onSuggestionResponse?: (suggestionId: string, response: "accepted" | "dismissed") => void;
   trip?: Trip;
@@ -25,6 +26,7 @@ interface AIDraftProps {
 
 export function AIDraft({
   onContinue,
+  onViewHotels,
   onRegenerate,
   onSuggestionResponse,
   trip,
@@ -59,6 +61,7 @@ export function AIDraft({
   const budgetPercent = totalBudget ? (estimatedCost / totalBudget) * 100 : 0;
   const weather = draftData?.aiDraftMeta.weather;
   const attractions = draftData?.aiDraftMeta.attractions || [];
+  const hotels = draftData?.aiDraftMeta.hotels || [];
   const insights = draftData?.aiDraftMeta.insights || [];
   const suggestions = draftData?.aiSuggestions || trip?.aiSuggestions || [];
 
@@ -221,6 +224,37 @@ export function AIDraft({
                     {place.type && <div className="text-xs text-primary-600 mt-2">{place.type}</div>}
                   </div>
                 ))}
+              </div>
+            </div>
+
+            <div className="bg-white rounded-xl border border-neutral-200 overflow-hidden">
+              <div className="p-4 border-b border-neutral-200 flex items-center justify-between">
+                <h3 className="font-semibold text-neutral-900">Recommended Hotels</h3>
+                <button
+                  onClick={onViewHotels}
+                  className="text-xs font-semibold text-primary-600 hover:text-primary-700"
+                >
+                  查看全部
+                </button>
+              </div>
+              <div className="p-4 space-y-3">
+                {hotels.slice(0, 3).map((hotel) => (
+                  <div key={hotel.id} className="rounded-lg border border-neutral-200 p-3">
+                    <div className="font-medium text-sm text-neutral-900">{hotel.name}</div>
+                    <div className="text-xs text-neutral-500 mt-1">{hotel.address || trip?.destination}</div>
+                    <div className="mt-2 flex items-center justify-between text-xs">
+                      <span className="text-neutral-600">{hotel.rating ? `${hotel.rating.toFixed(1)} stars` : "Rating N/A"}</span>
+                      <span className="font-semibold text-primary-700">
+                        {hotel.nightlyPrice ? `${hotel.nightlyPrice} ${hotel.currency}/night` : "Price on request"}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+                {hotels.length === 0 && (
+                  <div className="rounded-lg border border-dashed border-neutral-300 p-4 text-sm text-neutral-500">
+                    No hotel recommendations yet. Regenerate draft to fetch hotel suggestions.
+                  </div>
+                )}
               </div>
             </div>
 

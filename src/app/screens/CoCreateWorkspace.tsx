@@ -15,7 +15,7 @@ import {
 import { useMemo, useState } from "react";
 import { VoteControl } from "../components/helloworld/VoteControl";
 import { StatusChip } from "../components/helloworld/StatusChip";
-import type { Trip } from "@/domain/types";
+import type { HotelRecommendation, Trip } from "@/domain/types";
 
 interface CoCreateWorkspaceProps {
   onNavigate: (page: string) => void;
@@ -30,6 +30,7 @@ interface CoCreateWorkspaceProps {
     duration?: string;
     cost?: number;
   }) => void;
+  hotelRecommendations?: HotelRecommendation[];
   voting?: boolean;
   commenting?: boolean;
   creatingActivity?: boolean;
@@ -41,6 +42,7 @@ export function CoCreateWorkspace({
   onVote,
   onComment,
   onCreateActivity,
+  hotelRecommendations = [],
   voting = false,
   commenting = false,
   creatingActivity = false,
@@ -418,6 +420,66 @@ export function CoCreateWorkspace({
           </div>
 
           <div className="col-span-3 space-y-6">
+            <div className="bg-white rounded-xl border border-neutral-200 overflow-hidden">
+              <div className="p-4 border-b border-neutral-200 flex items-center justify-between">
+                <h3 className="font-semibold text-neutral-900">Hotel Picks</h3>
+                <button
+                  onClick={() => onNavigate("hotels")}
+                  className="text-xs font-semibold text-primary-600 hover:text-primary-700"
+                >
+                  查看全部
+                </button>
+              </div>
+              <div className="p-4 space-y-3">
+                {hotelRecommendations.slice(0, 3).map((hotel) => (
+                  <div key={hotel.id} className="rounded-lg border border-neutral-200 p-3">
+                    <div className="font-medium text-sm text-neutral-900">{hotel.name}</div>
+                    <div className="text-xs text-neutral-500 mt-1">{hotel.address || trip?.destination}</div>
+                    <div className="mt-2 text-xs text-neutral-700">
+                      {hotel.nightlyPrice ? `${hotel.nightlyPrice} ${hotel.currency}/night` : "Price on request"}
+                    </div>
+                    <div className="mt-3 grid grid-cols-2 gap-2">
+                      <button
+                        onClick={() =>
+                          onCreateActivity?.({
+                            dayNumber: currentDay?.day || selectedDay,
+                            time: "9:30 PM",
+                            name: `Hotel vote: ${hotel.name}`,
+                            location: hotel.address || trip?.destination,
+                            duration: "0.5h",
+                            cost: 0,
+                          })
+                        }
+                        className="px-2 py-1.5 rounded-md bg-primary text-white text-xs font-medium"
+                      >
+                        加入提案投票
+                      </button>
+                      <button
+                        onClick={() =>
+                          onCreateActivity?.({
+                            dayNumber: currentDay?.day || selectedDay,
+                            time: "8:00 PM",
+                            name: `Check-in: ${hotel.name}`,
+                            location: hotel.address || trip?.destination,
+                            duration: "1h",
+                            cost: hotel.nightlyPrice || 0,
+                          })
+                        }
+                        className="px-2 py-1.5 rounded-md bg-neutral-100 text-neutral-700 text-xs font-medium"
+                      >
+                        插入住宿活动
+                      </button>
+                    </div>
+                  </div>
+                ))}
+                {hotelRecommendations.length === 0 && (
+                  <div className="rounded-lg border border-dashed border-neutral-300 p-4 text-sm text-neutral-500">
+                    No hotel options available yet.
+                  </div>
+                )}
+              </div>
+            </div>
+
             <div className="bg-gradient-to-br from-white via-purple-50/30 to-pink-50/30 rounded-xl border border-purple-200 overflow-hidden">
               <div className="p-4 bg-white/80 border-b border-purple-200/50">
                 <div className="flex items-center gap-2">

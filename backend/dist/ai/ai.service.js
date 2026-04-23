@@ -14,15 +14,54 @@ const common_1 = require("@nestjs/common");
 const amap_service_1 = require("./amap.service");
 const llm_service_1 = require("./llm.service");
 const amap_service_2 = require("./amap.service");
+const serpapi_hotels_service_1 = require("./serpapi-hotels.service");
+const memory_service_1 = require("./memory.service");
 let AiService = class AiService {
-    constructor(amapService, llmService) {
+    constructor(amapService, llmService, serpapiHotelsService, memoryService) {
         this.amapService = amapService;
         this.llmService = llmService;
+        this.serpapiHotelsService = serpapiHotelsService;
+        this.memoryService = memoryService;
         this.sessions = new Map();
+        this.shortTermMemory = new Map();
     }
     async chat(message, sessionId, context = {}) {
         const activeSessionId = sessionId || `session_${Date.now()}`;
         const history = this.sessions.get(activeSessionId) || [];
+        let memoryContext = "";
+        if (context.tripId) {
+            memoryContext = await this.memoryService.getMemoryContext(context.tripId);
+            if (!this.shortTermMemory.has(activeSessionId)) {
+                this.shortTermMemory.set(activeSessionId, {
+                    tripContext: context,
+                    preferences: [],
+                    recentDecisions: [],
+                });
+            }
+            const memories = await this.memoryService.getMemories(context.tripId);
+            const shortMem = this.shortTermMemory.get(activeSessionId);
+            for (const mem of memories) {
+                if (mem.memoryType === "preference") {
+                    shortMem.preferences.push({
+                        key: mem.content.key,
+                        value: mem.content.value,
+                        timestamp: mem.createdAt.toISOString(),
+                    });
+                }
+            }
+        }
+        let memorySection = "";
+        const shortMem = this.shortTermMemory.get(activeSessionId);
+        if (shortMem) {
+            const prefs = shortMem.preferences.map((p) => `- ${p.key}: ${JSON.stringify(p.value)}`).join("\n");
+            const decisions = shortMem.recentDecisions.map((d) => `- ${d.decision}: ${JSON.stringify(d.details)}`).join("\n");
+            if (prefs || decisions) {
+                memorySection = `\n\n## Remember from Previous Conversation:\n${prefs ? `User Preferences:\n${prefs}` : ""}\n${decisions ? `\nRecent Decisions:\n${decisions}` : ""}`;
+            }
+        }
+        if (memoryContext) {
+            memorySection += `\n\n${memoryContext}`;
+        }
         const systemPrompt = [
             "You are TravelPal's collaborative AI travel agent.",
             "",
@@ -40,6 +79,7 @@ let AiService = class AiService {
             "- Never give generic advice without specific context",
             "",
             "If tool data is unavailable, say so explicitly and give best-effort suggestions.",
+            memorySection,
         ].join("\n");
         const llmMessages = [
             { role: "system", content: systemPrompt },
@@ -53,7 +93,7 @@ let AiService = class AiService {
         const maxToolCalls = 5;
         let toolCallCount = 0;
         while (toolCallCount < maxToolCalls) {
-            const { content, toolCalls } = await this.llmService.chat(llmMessages, amap_service_2.amapTools, "auto");
+            const { content, toolCalls } = await this.llmService.chat(llmMessages, [...amap_service_2.amapTools, ...serpapi_hotels_service_1.serpapiHotelTools], "auto");
             if (content) {
                 const reply = content;
                 const nextHistory = [
@@ -126,6 +166,117 @@ let AiService = class AiService {
             timestamp: new Date().toISOString(),
         };
     }
+    async chatStream(message, sessionId, context = {}, callbacks = {}) {
+        const { onToolCall, onToolResult, onChunk, onDone, onError, } = callbacks;
+        const activeSessionId = sessionId || `session_${Date.now()}`;
+        const history = this.sessions.get(activeSessionId) || [];
+        const systemPrompt = [
+            "You are TravelPal's collaborative AI travel agent.",
+            "",
+            "Answer in concise, practical English unless the user writes mostly Chinese, then answer in Chinese.",
+            "",
+            "When giving location suggestions:",
+            "- Include specific name, address, and why it's recommended",
+            "- Mention actual transportation with estimated time (e.g. '10 min walk or 2 subway stops')",
+            "- Include approximate cost (e.g. '¥50 per person average')",
+            "- Consider weather in recommendations ('due to rain forecast, indoor venues are better')",
+            "",
+            "When comparing options:",
+            "- Provide pros/cons with specific details",
+            "- Use real data from the provided tool results",
+            "- Never give generic advice without specific context",
+            "",
+            "If tool data is unavailable, say so explicitly and give best-effort suggestions.",
+        ].join("\n");
+        const llmMessages = [
+            { role: "system", content: systemPrompt },
+            ...history.slice(-6).map((item) => ({
+                role: item.role === "assistant" ? "assistant" : "user",
+                content: item.content,
+            })),
+            { role: "user", content: message },
+        ];
+        let toolResults = {};
+        const maxToolCalls = 5;
+        let toolCallCount = 0;
+        try {
+            while (toolCallCount < maxToolCalls) {
+                const { content, toolCalls } = await this.llmService.chat(llmMessages, [...amap_service_2.amapTools, ...serpapi_hotels_service_1.serpapiHotelTools], "auto");
+                if (content) {
+                    const words = content.split(" ");
+                    for (let i = 0; i < words.length; i++) {
+                        onChunk?.(words.slice(0, i + 1).join(" "));
+                        if (i % 3 === 0) {
+                            await new Promise((resolve) => setTimeout(resolve, 30));
+                        }
+                    }
+                    const nextHistory = [
+                        ...history,
+                        { role: "user", content: message, timestamp: new Date().toISOString() },
+                        { role: "assistant", content: content, timestamp: new Date().toISOString() },
+                    ];
+                    this.sessions.set(activeSessionId, nextHistory);
+                    onDone?.(content, toolResults, nextHistory);
+                    return;
+                }
+                if (!toolCalls || toolCalls.length === 0) {
+                    const reply = this.buildFallbackReply(message, toolResults, context);
+                    const words = reply.split(" ");
+                    for (let i = 0; i < words.length; i++) {
+                        onChunk?.(words.slice(0, i + 1).join(" "));
+                        if (i % 3 === 0) {
+                            await new Promise((resolve) => setTimeout(resolve, 30));
+                        }
+                    }
+                    const nextHistory = [
+                        ...history,
+                        { role: "user", content: message, timestamp: new Date().toISOString() },
+                        { role: "assistant", content: reply, timestamp: new Date().toISOString() },
+                    ];
+                    this.sessions.set(activeSessionId, nextHistory);
+                    onDone?.(reply, toolResults, nextHistory);
+                    return;
+                }
+                for (const toolCall of toolCalls) {
+                    const args = JSON.parse(toolCall.arguments);
+                    onToolCall?.(toolCall.name, args);
+                    const result = await this.executeToolCall(toolCall, context);
+                    toolResults[toolCall.name] = result;
+                    onToolResult?.(toolCall.name, result);
+                }
+                llmMessages.push({
+                    role: "assistant",
+                    content: null,
+                    tool_calls: toolCalls.map((tc) => ({
+                        id: tc.id,
+                        type: "function",
+                        function: { name: tc.name, arguments: tc.arguments },
+                    })),
+                });
+                for (const toolCall of toolCalls) {
+                    llmMessages.push({
+                        role: "tool",
+                        content: JSON.stringify(toolResults[toolCall.name]),
+                        name: toolCall.name,
+                        tool_call_id: toolCall.id,
+                    });
+                }
+                toolCallCount++;
+            }
+            const reply = "抱歉，我需要更多时间处理您的请求，请稍后再试。";
+            onChunk?.(reply);
+            const nextHistory = [
+                ...history,
+                { role: "user", content: message, timestamp: new Date().toISOString() },
+                { role: "assistant", content: reply, timestamp: new Date().toISOString() },
+            ];
+            this.sessions.set(activeSessionId, nextHistory);
+            onDone?.(reply, toolResults, nextHistory);
+        }
+        catch (error) {
+            onError?.(error instanceof Error ? error.message : "Unknown error");
+        }
+    }
     async executeToolCall(toolCall, context) {
         const destination = context.destination ||
             (typeof context.trip === "object" && context.trip && "destination" in context.trip
@@ -148,9 +299,36 @@ let AiService = class AiService {
                 const args = JSON.parse(toolCall.arguments);
                 return await this.amapService.compareRoutes(args.origin, args.destination, args.city || destination);
             }
+            case "search_hotels": {
+                const args = JSON.parse(toolCall.arguments);
+                return await this.serpapiHotelsService.searchHotels({
+                    destination: args.destination || destination || "北京",
+                    checkInDate: args.checkInDate || context.startDate,
+                    checkOutDate: args.checkOutDate || context.endDate,
+                    adults: args.adults,
+                    maxResults: args.maxResults,
+                    minRating: args.minRating,
+                    minPrice: args.minPrice,
+                    maxPrice: args.maxPrice,
+                    currency: "CNY",
+                });
+            }
             default:
                 return { error: `Unknown tool: ${toolCall.name}` };
         }
+    }
+    async searchHotels(input) {
+        return await this.serpapiHotelsService.searchHotels({
+            destination: input.destination,
+            checkInDate: input.checkInDate,
+            checkOutDate: input.checkOutDate,
+            adults: input.adults,
+            minRating: input.minRating,
+            minPrice: input.minPrice,
+            maxPrice: input.maxPrice,
+            maxResults: input.maxResults,
+            currency: "CNY",
+        });
     }
     getHistory(sessionId) {
         return {
@@ -160,17 +338,58 @@ let AiService = class AiService {
     }
     clearSession(sessionId) {
         this.sessions.delete(sessionId);
+        this.shortTermMemory.delete(sessionId);
         return {
             success: true,
             sessionId,
         };
+    }
+    async recordPreference(tripId, key, value, sessionId) {
+        await this.memoryService.recordPreference(tripId, key, value, "user_feedback");
+        if (sessionId) {
+            const shortMem = this.shortTermMemory.get(sessionId);
+            if (shortMem) {
+                shortMem.preferences = shortMem.preferences.filter((p) => p.key !== key);
+                shortMem.preferences.push({
+                    key,
+                    value,
+                    timestamp: new Date().toISOString(),
+                });
+            }
+        }
+    }
+    async recordDecision(tripId, decision, details, sessionId) {
+        await this.memoryService.recordItineraryChange(tripId, decision, details, "user_feedback");
+        if (sessionId) {
+            const shortMem = this.shortTermMemory.get(sessionId);
+            if (shortMem) {
+                shortMem.recentDecisions.push({
+                    decision,
+                    details,
+                    timestamp: new Date().toISOString(),
+                });
+            }
+        }
+    }
+    getShortTermMemory(sessionId) {
+        return this.shortTermMemory.get(sessionId);
     }
     async generateTripDraft(trip) {
         const days = this.getTripDayCount(trip.startDate, trip.endDate);
         const attractions = await this.amapService.searchPlaces(trip.destination, `${trip.destination} ${trip.preferences?.interests?.join(" ") || "attractions"}`);
         const restaurants = await this.amapService.searchPlaces(trip.destination, `${trip.destination} restaurants`);
         const weather = await this.amapService.getWeather(trip.destination);
-        const fallbackDraft = this.buildFallbackDraft(trip, days, attractions, restaurants, weather);
+        const hotelsResponse = await this.serpapiHotelsService.searchHotels({
+            destination: trip.destination,
+            checkInDate: trip.startDate,
+            checkOutDate: trip.endDate,
+            adults: Math.max(1, trip.members?.length || 2),
+            maxResults: 8,
+            minRating: 4,
+            currency: "CNY",
+        });
+        const hotels = hotelsResponse.hotels || [];
+        const fallbackDraft = this.buildFallbackDraft(trip, days, attractions, restaurants, weather, hotels);
         if (!this.llmService.isConfigured()) {
             return fallbackDraft;
         }
@@ -184,6 +403,7 @@ let AiService = class AiService {
                 `Preferences: ${JSON.stringify(trip.preferences || {})}`,
                 `Known attractions: ${JSON.stringify(attractions.slice(0, 8))}`,
                 `Known restaurants: ${JSON.stringify(restaurants.slice(0, 6))}`,
+                `Known hotels: ${JSON.stringify(hotels.slice(0, 5))}`,
                 `Weather: ${JSON.stringify(weather)}`,
                 'Return JSON with shape {"itinerary":[{"day":1,"dateLabel":"Day 1","activities":[{"time":"09:00 AM","name":"...","location":"...","duration":"2h","cost":0,"status":"proposed"}]}],"aiSuggestions":[{"title":"...","description":"...","status":"pending"}],"insights":["..."]}',
             ].join("\n\n");
@@ -228,6 +448,7 @@ let AiService = class AiService {
                 insights: parsed.insights || fallbackDraft.insights,
                 weather,
                 attractions,
+                hotels,
             };
         }
         catch {
@@ -295,14 +516,14 @@ let AiService = class AiService {
             const weather = toolResults.weather;
             lines.push(`Current weather for ${weather.city || toolResults.destination}: ${weather.weather || "unknown"}, ${weather.temperature || "N/A"}°C.`);
         }
-        if (toolResults.attractions.length) {
+        if (toolResults.attractions?.length) {
             lines.push(`Top attraction ideas: ${toolResults.attractions
                 .slice(0, 3)
                 .map((item) => item.name)
                 .filter(Boolean)
                 .join(", ")}.`);
         }
-        if (toolResults.restaurants.length) {
+        if (toolResults.restaurants?.length) {
             lines.push(`Food options to explore: ${toolResults.restaurants
                 .slice(0, 3)
                 .map((item) => item.name)
@@ -312,11 +533,17 @@ let AiService = class AiService {
         if (toolResults.routeComparison?.recommended) {
             lines.push(`Fastest route looks like ${toolResults.routeComparison.recommended.mode} at about ${toolResults.routeComparison.recommended.duration}.`);
         }
+        if (toolResults.search_hotels?.hotels?.length) {
+            lines.push(`Hotel picks: ${toolResults.search_hotels.hotels
+                .slice(0, 3)
+                .map((item) => `${item.name}(${item.nightlyPrice || "N/A"}${item.currency || "CNY"}/night)`)
+                .join(", ")}.`);
+        }
         lines.push(`Original request: ${message}`);
         lines.push("Live LLM output is unavailable, so this is a data-assisted fallback summary.");
         return lines.join("\n");
     }
-    buildFallbackDraft(trip, days, attractions, restaurants, weather) {
+    buildFallbackDraft(trip, days, attractions, restaurants, weather, hotels) {
         const pool = attractions.length
             ? attractions
             : [{ name: `${trip.destination} city walk`, address: trip.destination }];
@@ -379,6 +606,7 @@ let AiService = class AiService {
             ],
             weather,
             attractions,
+            hotels,
         };
     }
     buildFallbackOnTripSuggestion(weather) {
@@ -415,6 +643,8 @@ exports.AiService = AiService;
 exports.AiService = AiService = __decorate([
     (0, common_1.Injectable)(),
     __metadata("design:paramtypes", [amap_service_1.AmapService,
-        llm_service_1.LlmService])
+        llm_service_1.LlmService,
+        serpapi_hotels_service_1.SerpapiHotelsService,
+        memory_service_1.MemoryService])
 ], AiService);
 //# sourceMappingURL=ai.service.js.map

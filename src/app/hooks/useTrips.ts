@@ -166,3 +166,30 @@ export function useAddDiaryEntry(tripId: string) {
     },
   });
 }
+
+export function useHotelRecommendations(input: {
+  destination?: string;
+  checkInDate?: string;
+  checkOutDate?: string;
+  adults?: number;
+  minRating?: number;
+  minPrice?: number;
+  maxPrice?: number;
+  maxResults?: number;
+}) {
+  return useQuery({
+    queryKey: ["hotels", input],
+    queryFn: () =>
+      travelApi.searchHotels({
+        destination: input.destination || "北京",
+        checkInDate: input.checkInDate,
+        checkOutDate: input.checkOutDate,
+        adults: input.adults,
+        minRating: input.minRating,
+        minPrice: input.minPrice,
+        maxPrice: input.maxPrice,
+        maxResults: input.maxResults,
+      }),
+    enabled: Boolean(input.destination),
+  });
+}

@@ -15,6 +15,8 @@ import { AiController } from "./ai/ai.controller";
 import { AiService } from "./ai/ai.service";
 import { AmapService } from "./ai/amap.service";
 import { LlmService } from "./ai/llm.service";
+import { SerpapiHotelsService } from "./ai/serpapi-hotels.service";
+import { MemoryService } from "./ai/memory.service";
 
 @Module({
   controllers: [
@@ -36,6 +38,8 @@ import { LlmService } from "./ai/llm.service";
     AiService,
     AmapService,
     LlmService,
+    SerpapiHotelsService,
+    MemoryService,
   ],
 })
 export class AppModule {}

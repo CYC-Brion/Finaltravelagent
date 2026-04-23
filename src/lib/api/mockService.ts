@@ -5,6 +5,7 @@ import type {
   CommunityPost,
   CreateTripInput,
   Expense,
+  HotelSearchResponse,
   LoginInput,
   OnTripTodayResponse,
   Trip,
@@ -20,6 +21,54 @@ interface MockDb {
 
 const wait = async (ms = 200) => new Promise((resolve) => setTimeout(resolve, ms));
 const createId = (prefix: string) => `${prefix}_${Math.random().toString(36).slice(2, 10)}`;
+
+const mockHotels = [
+  {
+    id: "hotel_mock_1",
+    name: "The Peninsula Beijing",
+    address: "8 Jinyu Hutong, Wangfujing, Beijing",
+    district: "Dongcheng",
+    rating: 4.8,
+    reviews: 2360,
+    nightlyPrice: 1880,
+    totalPrice: 3760,
+    currency: "CNY",
+    source: "MockHotels",
+    transportMinutes: 18,
+    rankScore: 91,
+    rankReason: "High rating, central location, good value for premium segment",
+  },
+  {
+    id: "hotel_mock_2",
+    name: "Novotel Peace Beijing",
+    address: "3 Jinyu Hutong, Wangfujing, Beijing",
+    district: "Dongcheng",
+    rating: 4.4,
+    reviews: 1488,
+    nightlyPrice: 760,
+    totalPrice: 1520,
+    currency: "CNY",
+    source: "MockHotels",
+    transportMinutes: 14,
+    rankScore: 88,
+    rankReason: "Balanced price and location near transport",
+  },
+  {
+    id: "hotel_mock_3",
+    name: "Pudong Shangri-La Shanghai",
+    address: "33 Fu Cheng Road, Pudong, Shanghai",
+    district: "Pudong",
+    rating: 4.7,
+    reviews: 3010,
+    nightlyPrice: 1320,
+    totalPrice: 2640,
+    currency: "CNY",
+    source: "MockHotels",
+    transportMinutes: 22,
+    rankScore: 86,
+    rankReason: "Strong rating with reliable transit access",
+  },
+];
 
 function getDb(): MockDb {
   const raw = window.localStorage.getItem(DB_KEY);
@@ -140,7 +189,42 @@ export const mockService = {
             type: "attraction",
           })),
         ),
+        hotels: mockHotels,
       },
+    };
+    return payload;
+  },
+  async searchHotels(input: {
+    destination: string;
+    checkInDate?: string;
+    checkOutDate?: string;
+    adults?: number;
+    minRating?: number;
+    minPrice?: number;
+    maxPrice?: number;
+    maxResults?: number;
+  }) {
+    await wait(280);
+    let rows = [...mockHotels];
+    if (input.minRating) {
+      rows = rows.filter((hotel) => (hotel.rating || 0) >= input.minRating!);
+    }
+    if (input.minPrice) {
+      rows = rows.filter((hotel) => (hotel.nightlyPrice || 0) >= input.minPrice!);
+    }
+    if (input.maxPrice) {
+      rows = rows.filter((hotel) => (hotel.nightlyPrice || Number.MAX_SAFE_INTEGER) <= input.maxPrice!);
+    }
+    rows = rows.slice(0, Math.max(1, Math.min(10, input.maxResults || 6)));
+
+    const payload: HotelSearchResponse = {
+      configured: true,
+      destination: input.destination,
+      checkInDate: input.checkInDate,
+      checkOutDate: input.checkOutDate,
+      currency: "CNY",
+      strategy: "mock-value-first",
+      hotels: rows,
     };
     return payload;
   },
