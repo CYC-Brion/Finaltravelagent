@@ -5,6 +5,7 @@ import { AISuggestionChip } from "../components/helloworld/AISuggestionChip";
 import { DiffCard } from "../components/helloworld/DiffCard";
 import type { Trip } from "@/domain/types";
 import { travelApi } from "@/lib/api/travelApi";
+import { getTripAiSessionId, setTripAiSessionId } from "@/lib/aiSession";
 import { useRespondToSuggestion } from "../hooks/useTrips";
 
 interface AIAssistantProps {
@@ -28,7 +29,9 @@ const TOOL_LABELS: Record<string, string> = {
 
 export function AIAssistant({ onBack, trip }: AIAssistantProps) {
   const [showDiff, setShowDiff] = useState(true);
-  const [sessionId, setSessionId] = useState<string>();
+  const [sessionId, setSessionId] = useState<string | undefined>(() =>
+    getTripAiSessionId(trip?.id),
+  );
   const [assistantReply, setAssistantReply] = useState<string>("");
   const [isLoading, setIsLoading] = useState(false);
   const [toolCalls, setToolCalls] = useState<ToolCallStatus[]>([]);
@@ -54,7 +57,8 @@ export function AIAssistant({ onBack, trip }: AIAssistantProps) {
     setAgentMeta({});
 
     try {
-      const newSessionId = sessionId || `session_${Date.now()}`;
+      const persistedSessionId = getTripAiSessionId(trip?.id);
+      const newSessionId = sessionId || persistedSessionId;
 
       await travelApi.chatWithAssistantStream({
         input: {
@@ -67,6 +71,7 @@ export function AIAssistant({ onBack, trip }: AIAssistantProps) {
                 destination: trip.destination,
                 startDate: trip.startDate,
                 endDate: trip.endDate,
+                preferences: trip.preferences,
               }
             : undefined,
         },
@@ -107,7 +112,11 @@ export function AIAssistant({ onBack, trip }: AIAssistantProps) {
             setCurrentStatus("AI思考中...");
           },
           onDone: () => {
-            setSessionId(newSessionId);
+            const nextSessionId = newSessionId || (trip?.id ? `trip_${trip.id}` : undefined);
+            if (nextSessionId) {
+              setSessionId(nextSessionId);
+              setTripAiSessionId(trip?.id, nextSessionId);
+            }
             setCurrentStatus("");
           },
           onError: (error) => {

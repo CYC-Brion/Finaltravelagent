@@ -17,6 +17,27 @@ export class MemoryService {
     this.prisma = new PrismaClient();
   }
 
+  private async shouldSkipDuplicate(
+    tripId: string,
+    memoryType: MemoryType,
+    content: MemoryContent,
+  ): Promise<boolean> {
+    const existing = await this.prisma.tripMemory.findMany({
+      where: { tripId, memoryType },
+      orderBy: { createdAt: "desc" },
+      take: 50,
+    });
+
+    return existing.some((item) => {
+      try {
+        const parsed = JSON.parse(item.content) as MemoryContent;
+        return parsed.key === content.key && JSON.stringify(parsed.value) === JSON.stringify(content.value);
+      } catch {
+        return false;
+      }
+    });
+  }
+
   async addMemory(
     tripId: string,
     memoryType: MemoryType,
@@ -24,6 +45,11 @@ export class MemoryService {
     source: MemorySource,
     userId?: string,
   ): Promise<void> {
+    const skip = await this.shouldSkipDuplicate(tripId, memoryType, content);
+    if (skip) {
+      return;
+    }
+
     await this.prisma.tripMemory.create({
       data: {
         tripId,

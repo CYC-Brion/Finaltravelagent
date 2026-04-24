@@ -14,6 +14,7 @@ import { useState } from "react";
 import { StatusChip } from "../components/helloworld/StatusChip";
 import type { OnTripTodayResponse, Trip } from "@/domain/types";
 import { travelApi } from "@/lib/api/travelApi";
+import { getTripAiSessionId, setTripAiSessionId } from "@/lib/aiSession";
 
 interface OnTripDashboardProps {
   onNavigate: (page: string) => void;
@@ -31,7 +32,7 @@ export function OnTripDashboard({
   checkingIn = false,
 }: OnTripDashboardProps) {
   const [aiInput, setAiInput] = useState("");
-  const [sessionId, setSessionId] = useState<string>();
+  const [sessionId, setSessionId] = useState<string | undefined>(() => getTripAiSessionId(trip?.id));
   const [aiReply, setAiReply] = useState("");
   const [aiLoading, setAiLoading] = useState(false);
   const todayActivities =
@@ -243,17 +244,19 @@ export function OnTripDashboard({
                       try {
                         const response = await travelApi.chatWithAssistant({
                           message: aiInput,
-                          sessionId,
+                          sessionId: sessionId || getTripAiSessionId(trip?.id),
                           context: {
                             tripId: trip?.id,
                             tripName: trip?.name,
                             destination: trip?.destination,
                             startDate: trip?.startDate,
                             endDate: trip?.endDate,
+                            preferences: trip?.preferences,
                             todayActivities: todayData?.today?.activities || [],
                           },
                         });
                         setSessionId(response.sessionId);
+                        setTripAiSessionId(trip?.id, response.sessionId);
                         setAiReply(response.reply);
                         setAiInput("");
                       } finally {

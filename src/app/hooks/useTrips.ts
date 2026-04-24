@@ -75,6 +75,46 @@ export function useCreateActivity(tripId: string) {
   });
 }
 
+export function useUpdateActivity(tripId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      activityId,
+      input,
+    }: {
+      activityId: string;
+      input: {
+        time?: string;
+        name?: string;
+        location?: string;
+        duration?: string;
+        cost?: number;
+      };
+    }) => travelApi.updateActivity(activityId, input),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["trips", tripId] });
+    },
+  });
+}
+
+export function useMoveActivity(tripId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      activityId,
+      targetDayNumber,
+      targetIndex,
+    }: {
+      activityId: string;
+      targetDayNumber: number;
+      targetIndex?: number;
+    }) => travelApi.moveActivity(activityId, { targetDayNumber, targetIndex }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["trips", tripId] });
+    },
+  });
+}
+
 export function useVoteOnActivity(tripId: string) {
   const queryClient = useQueryClient();
   return useMutation({

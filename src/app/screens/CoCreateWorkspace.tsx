@@ -5,17 +5,31 @@ import {
   DollarSign,
   Filter,
   Globe,
+  GripVertical,
   History,
+  Loader2,
   MessageSquare,
+  Pencil,
   Plus,
   Send,
   Sparkles,
   Users,
+  Check,
+  X,
 } from "lucide-react";
 import { useMemo, useState } from "react";
+import type { DragEvent } from "react";
 import { VoteControl } from "../components/helloworld/VoteControl";
 import { StatusChip } from "../components/helloworld/StatusChip";
-import type { HotelRecommendation, Trip } from "@/domain/types";
+import type { Activity, HotelRecommendation, Trip } from "@/domain/types";
+import { travelApi } from "@/lib/api/travelApi";
+import { getTripAiSessionId, setTripAiSessionId } from "@/lib/aiSession";
+
+type InlineChatMessage = {
+  role: "user" | "assistant";
+  content: string;
+  timestamp: string;
+};
 
 interface CoCreateWorkspaceProps {
   onNavigate: (page: string) => void;
@@ -30,10 +44,23 @@ interface CoCreateWorkspaceProps {
     duration?: string;
     cost?: number;
   }) => void;
+  onUpdateActivity?: (
+    activityId: string,
+    input: {
+      time?: string;
+      name?: string;
+      location?: string;
+      duration?: string;
+      cost?: number;
+    },
+  ) => void;
+  onMoveActivity?: (activityId: string, targetDayNumber: number, targetIndex?: number) => void;
   hotelRecommendations?: HotelRecommendation[];
   voting?: boolean;
   commenting?: boolean;
   creatingActivity?: boolean;
+  updatingActivity?: boolean;
+  movingActivity?: boolean;
 }
 
 export function CoCreateWorkspace({
@@ -42,15 +69,33 @@ export function CoCreateWorkspace({
   onVote,
   onComment,
   onCreateActivity,
+  onUpdateActivity,
+  onMoveActivity,
   hotelRecommendations = [],
   voting = false,
   commenting = false,
   creatingActivity = false,
+  updatingActivity = false,
+  movingActivity = false,
 }: CoCreateWorkspaceProps) {
   const [selectedDay, setSelectedDay] = useState(1);
   const [aiMessage, setAiMessage] = useState("");
+  const [aiSessionId, setAiSessionId] = useState<string | undefined>(() => getTripAiSessionId(trip?.id));
+  const [chatMessages, setChatMessages] = useState<InlineChatMessage[]>([]);
+  const [streamingReply, setStreamingReply] = useState("");
+  const [aiThinking, setAiThinking] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
   const [commentDrafts, setCommentDrafts] = useState<Record<string, string>>({});
   const [showCreateForm, setShowCreateForm] = useState(false);
+  const [editingActivityId, setEditingActivityId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState({
+    time: "",
+    name: "",
+    location: "",
+    duration: "",
+    cost: "0",
+  });
+  const [draggingActivityId, setDraggingActivityId] = useState<string | null>(null);
   const [activityDraft, setActivityDraft] = useState({
     time: "10:00 AM",
     name: "",
@@ -91,6 +136,48 @@ export function CoCreateWorkspace({
       )
     : 0;
 
+  const startEditing = (activity: Activity) => {
+    setEditingActivityId(activity.id);
+    setEditDraft({
+      time: activity.time,
+      name: activity.name,
+      location: activity.location || "",
+      duration: activity.duration || "",
+      cost: String(activity.cost || 0),
+    });
+  };
+
+  const saveEditing = () => {
+    if (!editingActivityId) return;
+    onUpdateActivity?.(editingActivityId, {
+      time: editDraft.time.trim(),
+      name: editDraft.name.trim(),
+      location: editDraft.location.trim(),
+      duration: editDraft.duration.trim(),
+      cost: Number(editDraft.cost || 0),
+    });
+    setEditingActivityId(null);
+  };
+
+  const onCardDragStart = (activityId: string) => {
+    setDraggingActivityId(activityId);
+  };
+
+  const onCardDragEnd = () => {
+    setDraggingActivityId(null);
+  };
+
+  const allowDrop = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+  };
+
+  const dropActivity = (event: DragEvent<HTMLDivElement>, dayNumber: number, index?: number) => {
+    event.preventDefault();
+    if (!draggingActivityId) return;
+    onMoveActivity?.(draggingActivityId, dayNumber, index);
+    setDraggingActivityId(null);
+  };
+
   const consensusPercent = currentDay?.activities.length
     ? Math.round(
         (currentDay.activities.reduce((sum, activity) => {
@@ -101,6 +188,77 @@ export function CoCreateWorkspace({
           100,
       )
     : 0;
+
+  const sendInlineAiMessage = async (message: string) => {
+    const trimmed = message.trim();
+    if (!trimmed || aiThinking) {
+      return;
+    }
+
+    const nowIso = new Date().toISOString();
+    const persistedSessionId = getTripAiSessionId(trip?.id);
+    const nextSessionId = aiSessionId || persistedSessionId;
+
+    setAiThinking(true);
+    setAiError(null);
+    setStreamingReply("");
+    setChatMessages((prev) => [...prev, { role: "user", content: trimmed, timestamp: nowIso }]);
+    setAiMessage("");
+    let latestReply = "";
+
+    try {
+      await travelApi.chatWithAssistantStream({
+        input: {
+          message: trimmed,
+          sessionId: nextSessionId,
+          context: {
+            tripId: trip?.id,
+            tripName: trip?.name,
+            destination: trip?.destination,
+            startDate: trip?.startDate,
+            endDate: trip?.endDate,
+            preferences: trip?.preferences,
+            unresolvedItems: unresolvedItems.slice(0, 5).map((item) => item.name),
+            currentDay: currentDay?.day,
+            currentDayActivities: (currentDay?.activities || []).map((activity) => ({
+              time: activity.time,
+              name: activity.name,
+              location: activity.location,
+              status: activity.status,
+            })),
+          },
+        },
+        callbacks: {
+          onChunk: (content) => {
+            latestReply = content;
+            setStreamingReply(content);
+          },
+          onDone: () => {
+            const finalReply = latestReply.trim();
+            if (finalReply) {
+              setChatMessages((prev) => [
+                ...prev,
+                { role: "assistant", content: finalReply, timestamp: new Date().toISOString() },
+              ]);
+            }
+
+            const persisted = nextSessionId || (trip?.id ? `trip_${trip.id}` : undefined);
+            if (persisted) {
+              setAiSessionId(persisted);
+              setTripAiSessionId(trip?.id, persisted);
+            }
+
+            setStreamingReply("");
+          },
+          onError: (error) => {
+            setAiError(error || "AI response failed");
+          },
+        },
+      });
+    } finally {
+      setAiThinking(false);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-neutral-50 via-white to-primary-50">
@@ -240,6 +398,10 @@ export function CoCreateWorkspace({
                 <button
                   key={day.day}
                   onClick={() => setSelectedDay(day.day)}
+                  onDragOver={(event) => {
+                    event.preventDefault();
+                  }}
+                  onDrop={(event) => dropActivity(event, day.day)}
                   className={`px-4 py-2.5 rounded-lg font-medium transition-all whitespace-nowrap ${
                     selectedDay === day.day ? "bg-primary text-primary-foreground shadow-sm" : "text-neutral-600 hover:bg-neutral-50"
                   }`}
@@ -269,13 +431,23 @@ export function CoCreateWorkspace({
 
               <div className="space-y-4">
                 {(currentDay?.activities || []).map((activity, index, all) => (
-                  <div key={activity.id} className="relative">
+                  <div
+                    key={activity.id}
+                    className="relative"
+                    onDragOver={allowDrop}
+                    onDrop={(event) => dropActivity(event, currentDay?.day || selectedDay, index)}
+                  >
                     {index < all.length - 1 && <div className="absolute left-6 top-14 bottom-0 w-0.5 bg-neutral-200" />}
-                    <div className="bg-neutral-50 rounded-xl p-5 hover:shadow-md transition-shadow border border-neutral-200">
+                    <div
+                      draggable={editingActivityId !== activity.id && !movingActivity}
+                      onDragStart={() => onCardDragStart(activity.id)}
+                      onDragEnd={onCardDragEnd}
+                      className="bg-neutral-50 rounded-xl p-5 hover:shadow-md transition-shadow border border-neutral-200"
+                    >
                       <div className="flex items-start gap-4">
                         <div className="shrink-0">
-                          <div className="w-12 h-12 rounded-full bg-primary-100 flex items-center justify-center border-4 border-white shadow-sm">
-                            <Clock className="w-5 h-5 text-primary-600" />
+                          <div className="w-12 h-12 rounded-full bg-primary-100 flex items-center justify-center border-4 border-white shadow-sm cursor-grab active:cursor-grabbing">
+                            <GripVertical className="w-5 h-5 text-primary-600" />
                           </div>
                         </div>
 
@@ -283,10 +455,75 @@ export function CoCreateWorkspace({
                           <div className="flex items-start justify-between mb-3">
                             <div className="flex-1">
                               <div className="flex items-center gap-3 mb-2">
-                                <span className="text-sm font-semibold text-neutral-700">{activity.time}</span>
+                                {editingActivityId === activity.id ? (
+                                  <input
+                                    value={editDraft.time}
+                                    onChange={(e) => setEditDraft((current) => ({ ...current, time: e.target.value }))}
+                                    className="px-2 py-1 rounded border border-neutral-300 text-sm font-semibold text-neutral-700 w-28"
+                                  />
+                                ) : (
+                                  <span className="text-sm font-semibold text-neutral-700">{activity.time}</span>
+                                )}
                                 <StatusChip status={activity.status} />
                               </div>
-                              <h3 className="text-lg font-semibold text-neutral-900 mb-2">{activity.name}</h3>
+                              {editingActivityId === activity.id ? (
+                                <div className="space-y-2 mb-2">
+                                  <input
+                                    value={editDraft.name}
+                                    onChange={(e) => setEditDraft((current) => ({ ...current, name: e.target.value }))}
+                                    className="w-full px-2 py-1 rounded border border-neutral-300 text-sm"
+                                    placeholder="Activity name"
+                                  />
+                                  <div className="grid grid-cols-3 gap-2">
+                                    <input
+                                      value={editDraft.location}
+                                      onChange={(e) => setEditDraft((current) => ({ ...current, location: e.target.value }))}
+                                      className="px-2 py-1 rounded border border-neutral-300 text-sm"
+                                      placeholder="Location"
+                                    />
+                                    <input
+                                      value={editDraft.duration}
+                                      onChange={(e) => setEditDraft((current) => ({ ...current, duration: e.target.value }))}
+                                      className="px-2 py-1 rounded border border-neutral-300 text-sm"
+                                      placeholder="Duration"
+                                    />
+                                    <input
+                                      value={editDraft.cost}
+                                      onChange={(e) => setEditDraft((current) => ({ ...current, cost: e.target.value }))}
+                                      className="px-2 py-1 rounded border border-neutral-300 text-sm"
+                                      placeholder="Cost"
+                                    />
+                                  </div>
+                                </div>
+                              ) : (
+                                <h3 className="text-lg font-semibold text-neutral-900 mb-2">{activity.name}</h3>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-1 ml-3">
+                              {editingActivityId === activity.id ? (
+                                <>
+                                  <button
+                                    onClick={saveEditing}
+                                    disabled={updatingActivity || !editDraft.name.trim() || !editDraft.time.trim()}
+                                    className="p-1.5 rounded bg-success-100 text-success-700 disabled:opacity-50"
+                                  >
+                                    <Check className="w-4 h-4" />
+                                  </button>
+                                  <button
+                                    onClick={() => setEditingActivityId(null)}
+                                    className="p-1.5 rounded bg-neutral-200 text-neutral-700"
+                                  >
+                                    <X className="w-4 h-4" />
+                                  </button>
+                                </>
+                              ) : (
+                                <button
+                                  onClick={() => startEditing(activity)}
+                                  className="p-1.5 rounded bg-neutral-200 text-neutral-700 hover:bg-neutral-300"
+                                >
+                                  <Pencil className="w-4 h-4" />
+                                </button>
+                              )}
                             </div>
                           </div>
 
@@ -339,6 +576,16 @@ export function CoCreateWorkspace({
                     </div>
                   </div>
                 ))}
+
+                <div
+                  onDragOver={allowDrop}
+                  onDrop={(event) =>
+                    dropActivity(event, currentDay?.day || selectedDay, currentDay?.activities.length || 0)
+                  }
+                  className="rounded-lg border border-dashed border-neutral-300 p-3 text-center text-xs text-neutral-500"
+                >
+                  Drag here to move activity to the end of Day {currentDay?.day || selectedDay}
+                </div>
 
                 <button
                   onClick={() => setShowCreateForm((current) => !current)}
@@ -507,6 +754,34 @@ export function CoCreateWorkspace({
                     Balance budget
                   </button>
                 </div>
+
+                {chatMessages.length > 0 && (
+                  <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
+                    {chatMessages.map((item, index) => (
+                      <div
+                        key={`${item.timestamp}_${index}`}
+                        className={`rounded-lg border p-3 text-sm whitespace-pre-wrap ${
+                          item.role === "user"
+                            ? "bg-primary-50 border-primary-200 text-primary-900"
+                            : "bg-white border-purple-200 text-neutral-800"
+                        }`}
+                      >
+                        {item.content}
+                      </div>
+                    ))}
+                    {streamingReply && (
+                      <div className="rounded-lg border border-purple-200 bg-white p-3 text-sm text-neutral-800 whitespace-pre-wrap">
+                        {streamingReply}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {aiError && (
+                  <div className="rounded-lg border border-warning-300 bg-warning-50 p-3 text-xs text-warning-800">
+                    {aiError}
+                  </div>
+                )}
               </div>
 
               <div className="p-4 border-t border-purple-200/50">
@@ -516,13 +791,20 @@ export function CoCreateWorkspace({
                     placeholder="Ask AI..."
                     value={aiMessage}
                     onChange={(e) => setAiMessage(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        void sendInlineAiMessage(aiMessage);
+                      }
+                    }}
                     className="w-full pl-4 pr-10 py-2.5 rounded-lg border border-purple-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
                   />
                   <button
-                    onClick={() => onNavigate("ai")}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 bg-gradient-to-br from-purple-500 to-pink-500 text-white rounded-lg hover:shadow-lg transition-all"
+                    onClick={() => void sendInlineAiMessage(aiMessage)}
+                    disabled={!aiMessage.trim() || aiThinking}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 bg-gradient-to-br from-purple-500 to-pink-500 text-white rounded-lg hover:shadow-lg transition-all disabled:opacity-50"
                   >
-                    <Send className="w-3.5 h-3.5" />
+                    {aiThinking ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
                   </button>
                 </div>
               </div>
