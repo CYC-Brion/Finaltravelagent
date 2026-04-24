@@ -22,6 +22,12 @@ type AgentContext = Record<string, unknown> & {
   tripName?: string;
   startDate?: string;
   endDate?: string;
+  preferences?: {
+    pace?: string;
+    interests?: string[];
+    budgetMin?: number;
+    budgetMax?: number;
+  };
   origin?: string;
   destinationAddress?: string;
 };
@@ -50,16 +56,67 @@ export class AiService {
     private readonly memoryService: MemoryService,
   ) {}
 
-  async chat(message: string, sessionId?: string, context: AgentContext = {}) {
-    const activeSessionId = sessionId || `session_${Date.now()}`;
-    const history = this.sessions.get(activeSessionId) || [];
+  private resolveSessionId(sessionId?: string, context: AgentContext = {}) {
+    if (sessionId) {
+      return sessionId;
+    }
 
-    // Load trip memory if tripId is provided
+    if (context.tripId) {
+      return `trip_${context.tripId}`;
+    }
+
+    return `session_${Date.now()}`;
+  }
+
+  private async syncContextToMemory(context: AgentContext = {}, sessionId?: string): Promise<void> {
+    if (!context.tripId) {
+      return;
+    }
+
+    const tripId = context.tripId;
+    const tasks: Array<Promise<void>> = [];
+
+    if (context.destination) {
+      tasks.push(this.recordPreference(tripId, "destination", context.destination, sessionId));
+    }
+    if (context.startDate) {
+      tasks.push(this.recordPreference(tripId, "startDate", context.startDate, sessionId));
+    }
+    if (context.endDate) {
+      tasks.push(this.recordPreference(tripId, "endDate", context.endDate, sessionId));
+    }
+    if (context.tripName) {
+      tasks.push(this.recordPreference(tripId, "tripName", context.tripName, sessionId));
+    }
+
+    const preferences =
+      typeof context.preferences === "object" && context.preferences
+        ? (context.preferences as AgentContext["preferences"])
+        : undefined;
+
+    if (preferences?.pace) {
+      tasks.push(this.recordPreference(tripId, "pace", preferences.pace, sessionId));
+    }
+    if (preferences?.interests?.length) {
+      tasks.push(this.recordPreference(tripId, "interests", preferences.interests, sessionId));
+    }
+    if (typeof preferences?.budgetMin === "number") {
+      tasks.push(this.recordPreference(tripId, "budgetMin", preferences.budgetMin, sessionId));
+    }
+    if (typeof preferences?.budgetMax === "number") {
+      tasks.push(this.recordPreference(tripId, "budgetMax", preferences.budgetMax, sessionId));
+    }
+
+    if (tasks.length > 0) {
+      await Promise.all(tasks);
+    }
+  }
+
+  private async buildMemorySection(activeSessionId: string, context: AgentContext = {}) {
     let memoryContext = "";
     if (context.tripId) {
       memoryContext = await this.memoryService.getMemoryContext(context.tripId);
 
-      // Initialize short-term memory for this session
       if (!this.shortTermMemory.has(activeSessionId)) {
         this.shortTermMemory.set(activeSessionId, {
           tripContext: context,
@@ -68,9 +125,10 @@ export class AiService {
         });
       }
 
-      // Load existing preferences into short-term memory
       const memories = await this.memoryService.getMemories(context.tripId);
       const shortMem = this.shortTermMemory.get(activeSessionId)!;
+      shortMem.preferences = [];
+
       for (const mem of memories) {
         if (mem.memoryType === "preference") {
           shortMem.preferences.push({
@@ -82,15 +140,18 @@ export class AiService {
       }
     }
 
-    // Build memory context string for system prompt
     let memorySection = "";
     const shortMem = this.shortTermMemory.get(activeSessionId);
     if (shortMem) {
-      const prefs = shortMem.preferences.map((p) => `- ${p.key}: ${JSON.stringify(p.value)}`).join("\n");
-      const decisions = shortMem.recentDecisions.map((d) => `- ${d.decision}: ${JSON.stringify(d.details)}`).join("\n");
+      const prefs = shortMem.preferences
+        .map((p) => `- ${p.key}: ${JSON.stringify(p.value)}`)
+        .join("\n");
+      const decisions = shortMem.recentDecisions
+        .map((d) => `- ${d.decision}: ${JSON.stringify(d.details)}`)
+        .join("\n");
 
       if (prefs || decisions) {
-        memorySection = `\n\n## Remember from Previous Conversation:\n${prefs ? `User Preferences:\n${prefs}` : ""}\n${decisions ? `\nRecent Decisions:\n${decisions}` : ""}`;
+        memorySection = `\n\n## Remember from Previous Conversation:\n${prefs ? `User Preferences:\n${prefs}` : ""}${decisions ? `\n\nRecent Decisions:\n${decisions}` : ""}`;
       }
     }
 
@@ -98,7 +159,11 @@ export class AiService {
       memorySection += `\n\n${memoryContext}`;
     }
 
-    const systemPrompt = [
+    return memorySection;
+  }
+
+  private buildSystemPrompt(memorySection = "") {
+    return [
       "You are TravelPal's collaborative AI travel agent.",
       "",
       "Answer in concise, practical English unless the user writes mostly Chinese, then answer in Chinese.",
@@ -117,6 +182,15 @@ export class AiService {
       "If tool data is unavailable, say so explicitly and give best-effort suggestions.",
       memorySection,
     ].join("\n");
+  }
+
+  async chat(message: string, sessionId?: string, context: AgentContext = {}) {
+    const activeSessionId = this.resolveSessionId(sessionId, context);
+    const history = this.sessions.get(activeSessionId) || [];
+
+    await this.syncContextToMemory(context, activeSessionId);
+    const memorySection = await this.buildMemorySection(activeSessionId, context);
+    const systemPrompt = this.buildSystemPrompt(memorySection);
 
     const llmMessages: Parameters<LlmService["chat"]>[0] = [
       { role: "system", content: systemPrompt },
@@ -238,27 +312,12 @@ export class AiService {
       onError,
     } = callbacks;
 
-    const activeSessionId = sessionId || `session_${Date.now()}`;
+    const activeSessionId = this.resolveSessionId(sessionId, context);
     const history = this.sessions.get(activeSessionId) || [];
 
-    const systemPrompt = [
-      "You are TravelPal's collaborative AI travel agent.",
-      "",
-      "Answer in concise, practical English unless the user writes mostly Chinese, then answer in Chinese.",
-      "",
-      "When giving location suggestions:",
-      "- Include specific name, address, and why it's recommended",
-      "- Mention actual transportation with estimated time (e.g. '10 min walk or 2 subway stops')",
-      "- Include approximate cost (e.g. '¥50 per person average')",
-      "- Consider weather in recommendations ('due to rain forecast, indoor venues are better')",
-      "",
-      "When comparing options:",
-      "- Provide pros/cons with specific details",
-      "- Use real data from the provided tool results",
-      "- Never give generic advice without specific context",
-      "",
-      "If tool data is unavailable, say so explicitly and give best-effort suggestions.",
-    ].join("\n");
+    await this.syncContextToMemory(context, activeSessionId);
+    const memorySection = await this.buildMemorySection(activeSessionId, context);
+    const systemPrompt = this.buildSystemPrompt(memorySection);
 
     const llmMessages: Parameters<LlmService["chat"]>[0] = [
       { role: "system", content: systemPrompt },

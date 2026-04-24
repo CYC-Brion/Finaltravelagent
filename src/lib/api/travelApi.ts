@@ -36,6 +36,18 @@ const realService = {
     duration?: string;
     cost?: number;
   }) => apiRequest(`/trips/${tripId}/activities`, { method: "POST", body: JSON.stringify(input) }),
+  updateActivity: (
+    activityId: string,
+    input: {
+      time?: string;
+      name?: string;
+      location?: string;
+      duration?: string;
+      cost?: number;
+    },
+  ) => apiRequest(`/activities/${activityId}`, { method: "PATCH", body: JSON.stringify(input) }),
+  moveActivity: (activityId: string, input: { targetDayNumber: number; targetIndex?: number }) =>
+    apiRequest(`/activities/${activityId}/move`, { method: "POST", body: JSON.stringify(input) }),
   vote: (activityId: string, direction: 1 | -1) =>
     apiRequest(`/activities/${activityId}/votes`, { method: "POST", body: JSON.stringify({ direction }) }),
   addComment: (activityId: string, body: string) =>

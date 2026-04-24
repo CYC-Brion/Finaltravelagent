@@ -40,9 +40,48 @@ export class WorkspaceService {
   }
 
   updateActivity(activityId: string, body: Record<string, unknown>) {
-    const activity = this.findActivity(activityId);
-    if (!activity) return null;
-    Object.assign(activity, body);
+    const result = this.findActivity(activityId);
+    if (!result) return null;
+    Object.assign(result.activity, body);
+    return result.activity;
+  }
+
+  moveActivity(activityId: string, targetDayNumber: number, targetIndex?: number) {
+    const result = this.findActivity(activityId);
+    if (!result) return null;
+
+    const sourceDay = result.day;
+    const sourceIndex = sourceDay.activities.findIndex((item: any) => item.id === activityId);
+    if (sourceIndex === -1) return null;
+
+    const [activity] = sourceDay.activities.splice(sourceIndex, 1);
+
+    let targetDay = result.trip.itinerary.find((item: any) => item.day === Number(targetDayNumber));
+    if (!targetDay) {
+      targetDay = {
+        day: Number(targetDayNumber),
+        dateLabel: `Day ${Number(targetDayNumber)}`,
+        activities: [],
+      };
+      result.trip.itinerary.push(targetDay);
+      result.trip.itinerary.sort((a: any, b: any) => a.day - b.day);
+    }
+
+    const normalizedIndex =
+      typeof targetIndex === "number"
+        ? Math.max(0, Math.min(targetIndex, targetDay.activities.length))
+        : targetDay.activities.length;
+
+    activity.dayNumber = Number(targetDayNumber);
+    targetDay.activities.splice(normalizedIndex, 0, activity);
+
+    result.trip.activityFeed.unshift({
+      id: `feed_${Date.now()}`,
+      user: "Demo Traveler",
+      action: `moved ${activity.name} to Day ${Number(targetDayNumber)}`,
+      time: "just now",
+    });
+
     return activity;
   }
 

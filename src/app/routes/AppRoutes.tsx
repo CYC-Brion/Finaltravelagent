@@ -14,7 +14,7 @@ import { CommunityPage } from "../screens/CommunityPage";
 import { HotelRecommendations } from "../screens/HotelRecommendations";
 import { LoginPage } from "../screens/auth/LoginPage";
 import { AcceptInvitationPage } from "../screens/auth/AcceptInvitationPage";
-import { useAddComment, useAddDiaryEntry, useAddExpense, useAiDraft, useCheckInActivity, useCommunityPosts, useCreateActivity, useCreateTrip, useGenerateDraft, useHotelRecommendations, useMarkSettlementPaid, useOnTripToday, usePublishTrip, useRespondToSuggestion, useTrip, useTrips, useVoteOnActivity } from "../hooks/useTrips";
+import { useAddComment, useAddDiaryEntry, useAddExpense, useAiDraft, useCheckInActivity, useCommunityPosts, useCreateActivity, useCreateTrip, useGenerateDraft, useHotelRecommendations, useMarkSettlementPaid, useMoveActivity, useOnTripToday, usePublishTrip, useRespondToSuggestion, useTrip, useTrips, useUpdateActivity, useVoteOnActivity } from "../hooks/useTrips";
 import type { CreateTripInput, TripStatus } from "@/domain/types";
 import { travelApi } from "@/lib/api/travelApi";
 
@@ -142,6 +142,8 @@ function WorkspacePage() {
   const voteMutation = useVoteOnActivity(tripId);
   const commentMutation = useAddComment(tripId);
   const createActivityMutation = useCreateActivity(tripId);
+  const updateActivityMutation = useUpdateActivity(tripId);
+  const moveActivityMutation = useMoveActivity(tripId);
 
   if (!tripQuery.data) return <div className="p-10">Loading workspace...</div>;
 
@@ -151,10 +153,16 @@ function WorkspacePage() {
       onVote={(activityId, direction) => voteMutation.mutate({ activityId, direction })}
       onComment={(activityId, body) => commentMutation.mutate({ activityId, body })}
       onCreateActivity={(input) => createActivityMutation.mutate(input)}
+      onUpdateActivity={(activityId, input) => updateActivityMutation.mutate({ activityId, input })}
+      onMoveActivity={(activityId, targetDayNumber, targetIndex) =>
+        moveActivityMutation.mutate({ activityId, targetDayNumber, targetIndex })
+      }
       hotelRecommendations={aiDraftQuery.data?.aiDraftMeta.hotels || []}
       voting={voteMutation.isPending}
       commenting={commentMutation.isPending}
       creatingActivity={createActivityMutation.isPending}
+      updatingActivity={updateActivityMutation.isPending}
+      movingActivity={moveActivityMutation.isPending}
       onNavigate={(page) => {
         if (page === "ai") navigate(`/trips/${tripId}/ai`);
         if (page === "ontrip") navigate(`/trips/${tripId}/on-trip`);

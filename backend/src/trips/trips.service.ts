@@ -84,6 +84,18 @@ export class TripsService {
   async generateDraft(tripId: string) {
     const trip = this.getTrip(tripId);
     if (!trip) return null;
+
+    await Promise.all([
+      this.aiService.recordPreference(tripId, "tripName", trip.name),
+      this.aiService.recordPreference(tripId, "destination", trip.destination),
+      this.aiService.recordPreference(tripId, "startDate", trip.startDate),
+      this.aiService.recordPreference(tripId, "endDate", trip.endDate),
+      this.aiService.recordPreference(tripId, "pace", trip.preferences?.pace),
+      this.aiService.recordPreference(tripId, "interests", trip.preferences?.interests || []),
+      this.aiService.recordPreference(tripId, "budgetMin", Number(trip.preferences?.budgetMin || 0)),
+      this.aiService.recordPreference(tripId, "budgetMax", Number(trip.preferences?.budgetMax || 0)),
+    ]);
+
     trip.status = "planning";
     const generated = await this.aiService.generateTripDraft(trip);
     trip.itinerary = generated.itinerary;
@@ -168,6 +180,15 @@ export class TripsService {
       action: `${response === "accepted" ? "accepted" : "dismissed"} AI suggestion: ${suggestion.title}`,
       time: "just now",
     });
+
+    this.aiService
+      .recordDecision(tripId, "ai_suggestion_response", {
+        suggestionId,
+        suggestionTitle: suggestion.title,
+        response,
+      })
+      .catch(() => undefined);
+
     return suggestion;
   }
 }

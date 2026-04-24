@@ -10,6 +10,14 @@ import type {
   OnTripTodayResponse,
   Trip,
 } from "@/domain/types";
+
+type StreamCallbacks = {
+  onToolCall?: (tool: string, args: Record<string, unknown>) => void;
+  onToolResult?: (tool: string, result: unknown) => void;
+  onChunk?: (content: string) => void;
+  onDone?: () => void;
+  onError?: (error: string) => void;
+};
 import { defaultUser, seedCommunityPosts, seedTrips } from "./mockData";
 
 const DB_KEY = "helloworld.mock.db";
@@ -288,6 +296,74 @@ export const mockService = {
     setDb(db);
     return activity;
   },
+  async updateActivity(activityId: string, input: {
+    time?: string;
+    name?: string;
+    location?: string;
+    duration?: string;
+    cost?: number;
+  }) {
+    await wait();
+    const db = getDb();
+    for (const trip of db.trips) {
+      for (const day of trip.itinerary) {
+        const activity = day.activities.find((item) => item.id === activityId);
+        if (activity) {
+          Object.assign(activity, input);
+          trip.activityFeed.unshift({
+            id: createId("feed"),
+            user: defaultUser.name,
+            action: `updated ${activity.name}`,
+            time: "just now",
+          });
+          setDb(db);
+          return activity;
+        }
+      }
+    }
+    throw new Error("Activity not found");
+  },
+  async moveActivity(activityId: string, input: { targetDayNumber: number; targetIndex?: number }) {
+    await wait();
+    const db = getDb();
+    for (const trip of db.trips) {
+      for (const day of trip.itinerary) {
+        const sourceIndex = day.activities.findIndex((item) => item.id === activityId);
+        if (sourceIndex !== -1) {
+          const [activity] = day.activities.splice(sourceIndex, 1);
+
+          let targetDay = trip.itinerary.find((item) => item.day === input.targetDayNumber);
+          if (!targetDay) {
+            targetDay = {
+              day: input.targetDayNumber,
+              dateLabel: `Day ${input.targetDayNumber}`,
+              activities: [],
+            };
+            trip.itinerary.push(targetDay);
+            trip.itinerary.sort((a, b) => a.day - b.day);
+          }
+
+          const nextIndex =
+            typeof input.targetIndex === "number"
+              ? Math.max(0, Math.min(input.targetIndex, targetDay.activities.length))
+              : targetDay.activities.length;
+
+          activity.dayNumber = input.targetDayNumber;
+          targetDay.activities.splice(nextIndex, 0, activity);
+
+          trip.activityFeed.unshift({
+            id: createId("feed"),
+            user: defaultUser.name,
+            action: `moved ${activity.name} to Day ${input.targetDayNumber}`,
+            time: "just now",
+          });
+          setDb(db);
+          return activity;
+        }
+      }
+    }
+    throw new Error("Activity not found");
+  },
   async vote(activityId: string, direction: 1 | -1) {
     await wait();
     const db = getDb();
@@ -466,5 +542,24 @@ export const mockService = {
       },
     };
     return response;
+  },
+  async chatWithAssistantStream({
+    input,
+    callbacks,
+  }: {
+    input: {
+      message: string;
+      sessionId?: string;
+      context?: Record<string, unknown>;
+    };
+    callbacks: StreamCallbacks;
+  }) {
+    await wait(200);
+    const response = await this.chatWithAssistant({
+      message: input.message,
+      sessionId: input.sessionId,
+    });
+    callbacks.onChunk?.(response.reply);
+    callbacks.onDone?.();
   }
 };
