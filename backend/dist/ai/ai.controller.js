@@ -67,6 +67,9 @@ let AiController = class AiController {
     getHistory(sessionId) {
         return this.aiService.getHistory(sessionId);
     }
+    getMetrics(tripId) {
+        return this.aiService.getQualitySummary(tripId);
+    }
     clearSession(sessionId) {
         return this.aiService.clearSession(sessionId);
     }
@@ -106,6 +109,13 @@ __decorate([
     __metadata("design:paramtypes", [String]),
     __metadata("design:returntype", void 0)
 ], AiController.prototype, "getHistory", null);
+__decorate([
+    (0, common_1.Get)("metrics/:tripId"),
+    __param(0, (0, common_1.Param)("tripId")),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String]),
+    __metadata("design:returntype", void 0)
+], AiController.prototype, "getMetrics", null);
 __decorate([
     (0, common_1.Delete)("sessions/:sessionId"),
     __param(0, (0, common_1.Param)("sessionId")),

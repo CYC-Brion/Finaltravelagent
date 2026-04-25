@@ -48,6 +48,11 @@ const realService = {
   ) => apiRequest(`/activities/${activityId}`, { method: "PATCH", body: JSON.stringify(input) }),
   moveActivity: (activityId: string, input: { targetDayNumber: number; targetIndex?: number }) =>
     apiRequest(`/activities/${activityId}/move`, { method: "POST", body: JSON.stringify(input) }),
+  swapActivities: (activityId: string, targetActivityId: string) =>
+    apiRequest(`/activities/${activityId}/swap`, {
+      method: "POST",
+      body: JSON.stringify({ targetActivityId }),
+    }),
   vote: (activityId: string, direction: 1 | -1) =>
     apiRequest(`/activities/${activityId}/votes`, { method: "POST", body: JSON.stringify({ direction }) }),
   addComment: (activityId: string, body: string) =>

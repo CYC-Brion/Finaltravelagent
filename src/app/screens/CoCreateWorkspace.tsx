@@ -55,6 +55,7 @@ interface CoCreateWorkspaceProps {
     },
   ) => void;
   onMoveActivity?: (activityId: string, targetDayNumber: number, targetIndex?: number) => void;
+  onSwapActivity?: (activityId: string, targetActivityId: string) => void;
   hotelRecommendations?: HotelRecommendation[];
   voting?: boolean;
   commenting?: boolean;
@@ -71,6 +72,7 @@ export function CoCreateWorkspace({
   onCreateActivity,
   onUpdateActivity,
   onMoveActivity,
+  onSwapActivity,
   hotelRecommendations = [],
   voting = false,
   commenting = false,
@@ -96,6 +98,7 @@ export function CoCreateWorkspace({
     cost: "0",
   });
   const [draggingActivityId, setDraggingActivityId] = useState<string | null>(null);
+  const [dragTargetActivityId, setDragTargetActivityId] = useState<string | null>(null);
   const [activityDraft, setActivityDraft] = useState({
     time: "10:00 AM",
     name: "",
@@ -165,6 +168,7 @@ export function CoCreateWorkspace({
 
   const onCardDragEnd = () => {
     setDraggingActivityId(null);
+    setDragTargetActivityId(null);
   };
 
   const allowDrop = (event: DragEvent<HTMLDivElement>) => {
@@ -176,6 +180,15 @@ export function CoCreateWorkspace({
     if (!draggingActivityId) return;
     onMoveActivity?.(draggingActivityId, dayNumber, index);
     setDraggingActivityId(null);
+    setDragTargetActivityId(null);
+  };
+
+  const dropToSwap = (event: DragEvent<HTMLDivElement>, targetActivityId: string) => {
+    event.preventDefault();
+    if (!draggingActivityId || draggingActivityId === targetActivityId) return;
+    onSwapActivity?.(draggingActivityId, targetActivityId);
+    setDraggingActivityId(null);
+    setDragTargetActivityId(null);
   };
 
   const consensusPercent = currentDay?.activities.length
@@ -435,14 +448,34 @@ export function CoCreateWorkspace({
                     key={activity.id}
                     className="relative"
                     onDragOver={allowDrop}
-                    onDrop={(event) => dropActivity(event, currentDay?.day || selectedDay, index)}
                   >
+                    <div
+                      onDragOver={allowDrop}
+                      onDrop={(event) => dropActivity(event, currentDay?.day || selectedDay, index)}
+                      className="mb-2 rounded-md border border-dashed border-transparent py-1 text-center text-[11px] text-neutral-400 transition-colors hover:border-primary-200 hover:bg-primary-50"
+                    >
+                      Drop here to insert before this card
+                    </div>
                     {index < all.length - 1 && <div className="absolute left-6 top-14 bottom-0 w-0.5 bg-neutral-200" />}
                     <div
                       draggable={editingActivityId !== activity.id && !movingActivity}
                       onDragStart={() => onCardDragStart(activity.id)}
                       onDragEnd={onCardDragEnd}
-                      className="bg-neutral-50 rounded-xl p-5 hover:shadow-md transition-shadow border border-neutral-200"
+                      onDragOver={(event) => {
+                        allowDrop(event);
+                        if (draggingActivityId && draggingActivityId !== activity.id) {
+                          setDragTargetActivityId(activity.id);
+                        }
+                      }}
+                      onDragLeave={() => {
+                        if (dragTargetActivityId === activity.id) {
+                          setDragTargetActivityId(null);
+                        }
+                      }}
+                      onDrop={(event) => dropToSwap(event, activity.id)}
+                      className={`bg-neutral-50 rounded-xl p-5 hover:shadow-md transition-shadow border ${
+                        dragTargetActivityId === activity.id ? "border-primary-400 ring-2 ring-primary-200" : "border-neutral-200"
+                      }`}
                     >
                       <div className="flex items-start gap-4">
                         <div className="shrink-0">
@@ -526,6 +559,12 @@ export function CoCreateWorkspace({
                               )}
                             </div>
                           </div>
+
+                          {editingActivityId !== activity.id && (
+                            <div className="mb-3 text-xs text-neutral-500">
+                              Drag onto another card to swap positions. Drag to drop zones or day tabs to move.
+                            </div>
+                          )}
 
                           <VoteControl
                             voteFor={activity.votes.for}

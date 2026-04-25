@@ -16,11 +16,12 @@ export declare class WorkspaceService {
         };
         comments: never[];
     } | null;
-    updateActivity(activityId: string, body: Record<string, unknown>): {
-        trip: any;
-        day: any;
-        activity: any;
+    updateActivity(activityId: string, body: Record<string, unknown>): any;
+    swapActivities(sourceActivityId: string, targetActivityId: string): {
+        sourceActivity: any;
+        targetActivity: any;
     } | null;
+    moveActivity(activityId: string, targetDayNumber: number, targetIndex?: number): any;
     vote(activityId: string, direction: 1 | -1): any;
     addComment(activityId: string, body: string): {
         event: string;

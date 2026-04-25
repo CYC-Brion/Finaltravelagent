@@ -219,9 +219,22 @@ export function AIDraft({
               <div className="p-4 space-y-3">
                 {attractions.slice(0, 5).map((place, index) => (
                   <div key={`${place.name || "place"}_${index}`} className="rounded-lg border border-neutral-200 p-3">
-                    <div className="font-medium text-sm text-neutral-900">{place.name || "Suggested place"}</div>
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="font-medium text-sm text-neutral-900">{place.name || "Suggested place"}</div>
+                      <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-primary-50 text-primary-700">
+                        #{index + 1}
+                      </span>
+                    </div>
                     <div className="text-xs text-neutral-500 mt-1">{place.address || trip?.destination}</div>
                     {place.type && <div className="text-xs text-primary-600 mt-2">{place.type}</div>}
+                    <div className="mt-2 flex items-center gap-3 text-xs text-neutral-600">
+                      {typeof place.rating === "number" && <span>Rating {place.rating.toFixed(1)}</span>}
+                      {typeof place.rankScore === "number" && <span>Score {place.rankScore.toFixed(1)}</span>}
+                      {typeof place.reviews === "number" && <span>Heat {place.reviews}</span>}
+                    </div>
+                    {place.rankReason && (
+                      <div className="mt-1 text-[11px] text-neutral-500">{place.rankReason}</div>
+                    )}
                   </div>
                 ))}
               </div>

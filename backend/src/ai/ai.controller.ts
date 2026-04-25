@@ -101,6 +101,11 @@ export class AiController {
     return this.aiService.getHistory(sessionId);
   }
 
+  @Get("metrics/:tripId")
+  getMetrics(@Param("tripId") tripId: string) {
+    return this.aiService.getQualitySummary(tripId);
+  }
+
   @Delete("sessions/:sessionId")
   clearSession(@Param("sessionId") sessionId: string) {
     return this.aiService.clearSession(sessionId);

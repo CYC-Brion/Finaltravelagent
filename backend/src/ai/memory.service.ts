@@ -9,6 +9,27 @@ type MemoryContent = {
   value: unknown;
 };
 
+type SessionMessageContent = {
+  sessionId: string;
+  role: "user" | "assistant";
+  content: string;
+  timestamp: string;
+};
+
+type QualityLogContent = {
+  sessionId: string;
+  messageLength: number;
+  responseLength: number;
+  toolCallCount: number;
+  toolNames: string[];
+  toolDurationsMs: number[];
+  totalLatencyMs: number;
+  llmCalls: number;
+  fallbackTriggered: boolean;
+  error?: string;
+  createdAt: string;
+};
+
 @Injectable()
 export class MemoryService {
   private prisma: PrismaClient;
@@ -68,7 +89,12 @@ export class MemoryService {
     createdAt: Date;
   }>> {
     const memories = await this.prisma.tripMemory.findMany({
-      where: { tripId },
+      where: {
+        tripId,
+        memoryType: {
+          in: ["preference", "itinerary_change", "constraint"],
+        },
+      },
       orderBy: { updatedAt: "desc" },
     });
 
@@ -118,5 +144,115 @@ export class MemoryService {
     await this.prisma.tripMemory.deleteMany({
       where: { tripId },
     });
+  }
+
+  async appendSessionMessages(
+    tripId: string,
+    messages: Array<{ sessionId: string; role: "user" | "assistant"; content: string; timestamp: string }>,
+  ): Promise<void> {
+    if (!tripId || messages.length === 0) {
+      return;
+    }
+
+    await this.prisma.tripMemory.createMany({
+      data: messages.map((item) => ({
+        tripId,
+        userId: null,
+        memoryType: "session_message",
+        source: "user_feedback",
+        content: JSON.stringify({
+          sessionId: item.sessionId,
+          role: item.role,
+          content: item.content,
+          timestamp: item.timestamp,
+        } satisfies SessionMessageContent),
+      })),
+    });
+  }
+
+  async loadSessionMessages(
+    tripId: string,
+    sessionId: string,
+    limit = 40,
+  ): Promise<Array<{ role: "user" | "assistant"; content: string; timestamp: string }>> {
+    const rows = await this.prisma.tripMemory.findMany({
+      where: {
+        tripId,
+        memoryType: "session_message",
+        content: { contains: `\"sessionId\":\"${sessionId}\"` },
+      },
+      orderBy: { createdAt: "asc" },
+      take: Math.max(1, limit),
+    });
+
+    const parsed = rows
+      .map((row) => {
+        try {
+          return JSON.parse(row.content) as SessionMessageContent;
+        } catch {
+          return null;
+        }
+      })
+      .filter((item): item is SessionMessageContent => Boolean(item))
+      .map((item) => ({ role: item.role, content: item.content, timestamp: item.timestamp }));
+
+    return parsed;
+  }
+
+  async clearSessionMessages(tripId: string, sessionId: string): Promise<void> {
+    await this.prisma.tripMemory.deleteMany({
+      where: {
+        tripId,
+        memoryType: "session_message",
+        content: { contains: `\"sessionId\":\"${sessionId}\"` },
+      },
+    });
+  }
+
+  async addQualityLog(tripId: string, log: QualityLogContent): Promise<void> {
+    await this.prisma.tripMemory.create({
+      data: {
+        tripId,
+        userId: null,
+        memoryType: "quality_log",
+        source: "ai_suggestion",
+        content: JSON.stringify(log),
+      },
+    });
+  }
+
+  async getQualitySummary(tripId: string, limit = 200) {
+    const rows = await this.prisma.tripMemory.findMany({
+      where: {
+        tripId,
+        memoryType: "quality_log",
+      },
+      orderBy: { createdAt: "desc" },
+      take: Math.max(1, limit),
+    });
+
+    const logs = rows
+      .map((row) => {
+        try {
+          return JSON.parse(row.content) as QualityLogContent;
+        } catch {
+          return null;
+        }
+      })
+      .filter((item): item is QualityLogContent => Boolean(item));
+
+    const total = logs.length;
+    const fallbackCount = logs.filter((item) => item.fallbackTriggered).length;
+    const avgToolCalls = total > 0 ? logs.reduce((sum, item) => sum + item.toolCallCount, 0) / total : 0;
+    const avgLatencyMs = total > 0 ? logs.reduce((sum, item) => sum + item.totalLatencyMs, 0) / total : 0;
+
+    return {
+      total,
+      fallbackCount,
+      fallbackRate: total > 0 ? Number((fallbackCount / total).toFixed(3)) : 0,
+      avgToolCalls: Number(avgToolCalls.toFixed(2)),
+      avgLatencyMs: Number(avgLatencyMs.toFixed(2)),
+      latest: logs.slice(0, 20),
+    };
   }
 }

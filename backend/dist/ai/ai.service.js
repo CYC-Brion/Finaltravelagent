@@ -25,9 +25,119 @@ let AiService = class AiService {
         this.sessions = new Map();
         this.shortTermMemory = new Map();
     }
-    async chat(message, sessionId, context = {}) {
-        const activeSessionId = sessionId || `session_${Date.now()}`;
-        const history = this.sessions.get(activeSessionId) || [];
+    resolveSessionId(sessionId, context = {}) {
+        if (sessionId) {
+            return sessionId;
+        }
+        if (context.tripId) {
+            return `trip_${context.tripId}`;
+        }
+        return `session_${Date.now()}`;
+    }
+    extractTripIdFromSession(sessionId) {
+        if (!sessionId.startsWith("trip_")) {
+            return undefined;
+        }
+        const value = sessionId.slice(5);
+        return value || undefined;
+    }
+    resolveTripId(sessionId, context = {}) {
+        return context.tripId || this.extractTripIdFromSession(sessionId);
+    }
+    async hydrateSessionHistory(activeSessionId, context = {}) {
+        const existing = this.sessions.get(activeSessionId) || [];
+        if (existing.length > 0) {
+            return existing;
+        }
+        const tripId = this.resolveTripId(activeSessionId, context);
+        if (!tripId) {
+            return existing;
+        }
+        const persisted = await this.memoryService.loadSessionMessages(tripId, activeSessionId, 60);
+        if (persisted.length > 0) {
+            this.sessions.set(activeSessionId, persisted);
+            return persisted;
+        }
+        return existing;
+    }
+    async persistSessionExchange(activeSessionId, context, userMessage, assistantMessage) {
+        const tripId = this.resolveTripId(activeSessionId, context);
+        if (!tripId) {
+            return;
+        }
+        const now = new Date();
+        await this.memoryService.appendSessionMessages(tripId, [
+            {
+                sessionId: activeSessionId,
+                role: "user",
+                content: userMessage,
+                timestamp: now.toISOString(),
+            },
+            {
+                sessionId: activeSessionId,
+                role: "assistant",
+                content: assistantMessage,
+                timestamp: new Date(now.getTime() + 1).toISOString(),
+            },
+        ]);
+    }
+    async logQuality(activeSessionId, context, payload) {
+        const tripId = this.resolveTripId(activeSessionId, context);
+        if (!tripId) {
+            return;
+        }
+        await this.memoryService.addQualityLog(tripId, {
+            sessionId: activeSessionId,
+            messageLength: payload.messageLength,
+            responseLength: payload.responseLength,
+            toolCallCount: payload.toolNames.length,
+            toolNames: payload.toolNames,
+            toolDurationsMs: payload.toolDurationsMs,
+            totalLatencyMs: payload.totalLatencyMs,
+            llmCalls: payload.llmCalls,
+            fallbackTriggered: payload.fallbackTriggered,
+            error: payload.error,
+            createdAt: new Date().toISOString(),
+        });
+    }
+    async syncContextToMemory(context = {}, sessionId) {
+        if (!context.tripId) {
+            return;
+        }
+        const tripId = context.tripId;
+        const tasks = [];
+        if (context.destination) {
+            tasks.push(this.recordPreference(tripId, "destination", context.destination, sessionId));
+        }
+        if (context.startDate) {
+            tasks.push(this.recordPreference(tripId, "startDate", context.startDate, sessionId));
+        }
+        if (context.endDate) {
+            tasks.push(this.recordPreference(tripId, "endDate", context.endDate, sessionId));
+        }
+        if (context.tripName) {
+            tasks.push(this.recordPreference(tripId, "tripName", context.tripName, sessionId));
+        }
+        const preferences = typeof context.preferences === "object" && context.preferences
+            ? context.preferences
+            : undefined;
+        if (preferences?.pace) {
+            tasks.push(this.recordPreference(tripId, "pace", preferences.pace, sessionId));
+        }
+        if (preferences?.interests?.length) {
+            tasks.push(this.recordPreference(tripId, "interests", preferences.interests, sessionId));
+        }
+        if (typeof preferences?.budgetMin === "number") {
+            tasks.push(this.recordPreference(tripId, "budgetMin", preferences.budgetMin, sessionId));
+        }
+        if (typeof preferences?.budgetMax === "number") {
+            tasks.push(this.recordPreference(tripId, "budgetMax", preferences.budgetMax, sessionId));
+        }
+        if (tasks.length > 0) {
+            await Promise.all(tasks);
+        }
+    }
+    async buildMemorySection(activeSessionId, context = {}) {
         let memoryContext = "";
         if (context.tripId) {
             memoryContext = await this.memoryService.getMemoryContext(context.tripId);
@@ -40,6 +150,7 @@ let AiService = class AiService {
             }
             const memories = await this.memoryService.getMemories(context.tripId);
             const shortMem = this.shortTermMemory.get(activeSessionId);
+            shortMem.preferences = [];
             for (const mem of memories) {
                 if (mem.memoryType === "preference") {
                     shortMem.preferences.push({
@@ -53,16 +164,23 @@ let AiService = class AiService {
         let memorySection = "";
         const shortMem = this.shortTermMemory.get(activeSessionId);
         if (shortMem) {
-            const prefs = shortMem.preferences.map((p) => `- ${p.key}: ${JSON.stringify(p.value)}`).join("\n");
-            const decisions = shortMem.recentDecisions.map((d) => `- ${d.decision}: ${JSON.stringify(d.details)}`).join("\n");
+            const prefs = shortMem.preferences
+                .map((p) => `- ${p.key}: ${JSON.stringify(p.value)}`)
+                .join("\n");
+            const decisions = shortMem.recentDecisions
+                .map((d) => `- ${d.decision}: ${JSON.stringify(d.details)}`)
+                .join("\n");
             if (prefs || decisions) {
-                memorySection = `\n\n## Remember from Previous Conversation:\n${prefs ? `User Preferences:\n${prefs}` : ""}\n${decisions ? `\nRecent Decisions:\n${decisions}` : ""}`;
+                memorySection = `\n\n## Remember from Previous Conversation:\n${prefs ? `User Preferences:\n${prefs}` : ""}${decisions ? `\n\nRecent Decisions:\n${decisions}` : ""}`;
             }
         }
         if (memoryContext) {
             memorySection += `\n\n${memoryContext}`;
         }
-        const systemPrompt = [
+        return memorySection;
+    }
+    buildSystemPrompt(memorySection = "") {
+        return [
             "You are TravelPal's collaborative AI travel agent.",
             "",
             "Answer in concise, practical English unless the user writes mostly Chinese, then answer in Chinese.",
@@ -81,6 +199,18 @@ let AiService = class AiService {
             "If tool data is unavailable, say so explicitly and give best-effort suggestions.",
             memorySection,
         ].join("\n");
+    }
+    async chat(message, sessionId, context = {}) {
+        const activeSessionId = this.resolveSessionId(sessionId, context);
+        const history = await this.hydrateSessionHistory(activeSessionId, context);
+        const startedAt = Date.now();
+        const toolNames = [];
+        const toolDurationsMs = [];
+        let llmCalls = 0;
+        let fallbackTriggered = false;
+        await this.syncContextToMemory(context, activeSessionId);
+        const memorySection = await this.buildMemorySection(activeSessionId, context);
+        const systemPrompt = this.buildSystemPrompt(memorySection);
         const llmMessages = [
             { role: "system", content: systemPrompt },
             ...history.slice(-6).map((item) => ({
@@ -93,6 +223,7 @@ let AiService = class AiService {
         const maxToolCalls = 5;
         let toolCallCount = 0;
         while (toolCallCount < maxToolCalls) {
+            llmCalls += 1;
             const { content, toolCalls } = await this.llmService.chat(llmMessages, [...amap_service_2.amapTools, ...serpapi_hotels_service_1.serpapiHotelTools], "auto");
             if (content) {
                 const reply = content;
@@ -102,6 +233,16 @@ let AiService = class AiService {
                     { role: "assistant", content: reply, timestamp: new Date().toISOString() },
                 ];
                 this.sessions.set(activeSessionId, nextHistory);
+                await this.persistSessionExchange(activeSessionId, context, message, reply);
+                await this.logQuality(activeSessionId, context, {
+                    messageLength: message.length,
+                    responseLength: reply.length,
+                    toolNames,
+                    toolDurationsMs,
+                    llmCalls,
+                    fallbackTriggered,
+                    totalLatencyMs: Date.now() - startedAt,
+                });
                 return {
                     sessionId: activeSessionId,
                     reply,
@@ -111,6 +252,7 @@ let AiService = class AiService {
                 };
             }
             if (!toolCalls || toolCalls.length === 0) {
+                fallbackTriggered = true;
                 const reply = this.buildFallbackReply(message, toolResults, context);
                 const nextHistory = [
                     ...history,
@@ -118,6 +260,16 @@ let AiService = class AiService {
                     { role: "assistant", content: reply, timestamp: new Date().toISOString() },
                 ];
                 this.sessions.set(activeSessionId, nextHistory);
+                await this.persistSessionExchange(activeSessionId, context, message, reply);
+                await this.logQuality(activeSessionId, context, {
+                    messageLength: message.length,
+                    responseLength: reply.length,
+                    toolNames,
+                    toolDurationsMs,
+                    llmCalls,
+                    fallbackTriggered,
+                    totalLatencyMs: Date.now() - startedAt,
+                });
                 return {
                     sessionId: activeSessionId,
                     reply,
@@ -128,7 +280,10 @@ let AiService = class AiService {
             }
             const toolCallsWithResults = [];
             for (const toolCall of toolCalls) {
+                const toolStarted = Date.now();
                 const result = await this.executeToolCall(toolCall, context);
+                toolNames.push(toolCall.name);
+                toolDurationsMs.push(Date.now() - toolStarted);
                 toolResults[toolCall.name] = result;
                 toolCallsWithResults.push({ toolCall, result });
             }
@@ -158,6 +313,17 @@ let AiService = class AiService {
             { role: "assistant", content: reply, timestamp: new Date().toISOString() },
         ];
         this.sessions.set(activeSessionId, nextHistory);
+        fallbackTriggered = true;
+        await this.persistSessionExchange(activeSessionId, context, message, reply);
+        await this.logQuality(activeSessionId, context, {
+            messageLength: message.length,
+            responseLength: reply.length,
+            toolNames,
+            toolDurationsMs,
+            llmCalls,
+            fallbackTriggered,
+            totalLatencyMs: Date.now() - startedAt,
+        });
         return {
             sessionId: activeSessionId,
             reply,
@@ -168,26 +334,16 @@ let AiService = class AiService {
     }
     async chatStream(message, sessionId, context = {}, callbacks = {}) {
         const { onToolCall, onToolResult, onChunk, onDone, onError, } = callbacks;
-        const activeSessionId = sessionId || `session_${Date.now()}`;
-        const history = this.sessions.get(activeSessionId) || [];
-        const systemPrompt = [
-            "You are TravelPal's collaborative AI travel agent.",
-            "",
-            "Answer in concise, practical English unless the user writes mostly Chinese, then answer in Chinese.",
-            "",
-            "When giving location suggestions:",
-            "- Include specific name, address, and why it's recommended",
-            "- Mention actual transportation with estimated time (e.g. '10 min walk or 2 subway stops')",
-            "- Include approximate cost (e.g. '¥50 per person average')",
-            "- Consider weather in recommendations ('due to rain forecast, indoor venues are better')",
-            "",
-            "When comparing options:",
-            "- Provide pros/cons with specific details",
-            "- Use real data from the provided tool results",
-            "- Never give generic advice without specific context",
-            "",
-            "If tool data is unavailable, say so explicitly and give best-effort suggestions.",
-        ].join("\n");
+        const activeSessionId = this.resolveSessionId(sessionId, context);
+        const history = await this.hydrateSessionHistory(activeSessionId, context);
+        const startedAt = Date.now();
+        const toolNames = [];
+        const toolDurationsMs = [];
+        let llmCalls = 0;
+        let fallbackTriggered = false;
+        await this.syncContextToMemory(context, activeSessionId);
+        const memorySection = await this.buildMemorySection(activeSessionId, context);
+        const systemPrompt = this.buildSystemPrompt(memorySection);
         const llmMessages = [
             { role: "system", content: systemPrompt },
             ...history.slice(-6).map((item) => ({
@@ -201,6 +357,7 @@ let AiService = class AiService {
         let toolCallCount = 0;
         try {
             while (toolCallCount < maxToolCalls) {
+                llmCalls += 1;
                 const { content, toolCalls } = await this.llmService.chat(llmMessages, [...amap_service_2.amapTools, ...serpapi_hotels_service_1.serpapiHotelTools], "auto");
                 if (content) {
                     const words = content.split(" ");
@@ -216,10 +373,21 @@ let AiService = class AiService {
                         { role: "assistant", content: content, timestamp: new Date().toISOString() },
                     ];
                     this.sessions.set(activeSessionId, nextHistory);
+                    await this.persistSessionExchange(activeSessionId, context, message, content);
+                    await this.logQuality(activeSessionId, context, {
+                        messageLength: message.length,
+                        responseLength: content.length,
+                        toolNames,
+                        toolDurationsMs,
+                        llmCalls,
+                        fallbackTriggered,
+                        totalLatencyMs: Date.now() - startedAt,
+                    });
                     onDone?.(content, toolResults, nextHistory);
                     return;
                 }
                 if (!toolCalls || toolCalls.length === 0) {
+                    fallbackTriggered = true;
                     const reply = this.buildFallbackReply(message, toolResults, context);
                     const words = reply.split(" ");
                     for (let i = 0; i < words.length; i++) {
@@ -234,13 +402,26 @@ let AiService = class AiService {
                         { role: "assistant", content: reply, timestamp: new Date().toISOString() },
                     ];
                     this.sessions.set(activeSessionId, nextHistory);
+                    await this.persistSessionExchange(activeSessionId, context, message, reply);
+                    await this.logQuality(activeSessionId, context, {
+                        messageLength: message.length,
+                        responseLength: reply.length,
+                        toolNames,
+                        toolDurationsMs,
+                        llmCalls,
+                        fallbackTriggered,
+                        totalLatencyMs: Date.now() - startedAt,
+                    });
                     onDone?.(reply, toolResults, nextHistory);
                     return;
                 }
                 for (const toolCall of toolCalls) {
                     const args = JSON.parse(toolCall.arguments);
                     onToolCall?.(toolCall.name, args);
+                    const toolStarted = Date.now();
                     const result = await this.executeToolCall(toolCall, context);
+                    toolNames.push(toolCall.name);
+                    toolDurationsMs.push(Date.now() - toolStarted);
                     toolResults[toolCall.name] = result;
                     onToolResult?.(toolCall.name, result);
                 }
@@ -271,9 +452,30 @@ let AiService = class AiService {
                 { role: "assistant", content: reply, timestamp: new Date().toISOString() },
             ];
             this.sessions.set(activeSessionId, nextHistory);
+            fallbackTriggered = true;
+            await this.persistSessionExchange(activeSessionId, context, message, reply);
+            await this.logQuality(activeSessionId, context, {
+                messageLength: message.length,
+                responseLength: reply.length,
+                toolNames,
+                toolDurationsMs,
+                llmCalls,
+                fallbackTriggered,
+                totalLatencyMs: Date.now() - startedAt,
+            });
             onDone?.(reply, toolResults, nextHistory);
         }
         catch (error) {
+            await this.logQuality(activeSessionId, context, {
+                messageLength: message.length,
+                responseLength: 0,
+                toolNames,
+                toolDurationsMs,
+                llmCalls,
+                fallbackTriggered: true,
+                totalLatencyMs: Date.now() - startedAt,
+                error: error instanceof Error ? error.message : "Unknown error",
+            });
             onError?.(error instanceof Error ? error.message : "Unknown error");
         }
     }
@@ -330,15 +532,32 @@ let AiService = class AiService {
             currency: "CNY",
         });
     }
-    getHistory(sessionId) {
+    async getQualitySummary(tripId) {
+        return this.memoryService.getQualitySummary(tripId, 300);
+    }
+    async getHistory(sessionId) {
+        let history = this.sessions.get(sessionId) || [];
+        if (history.length === 0) {
+            const tripId = this.extractTripIdFromSession(sessionId);
+            if (tripId) {
+                history = await this.memoryService.loadSessionMessages(tripId, sessionId, 60);
+                if (history.length > 0) {
+                    this.sessions.set(sessionId, history);
+                }
+            }
+        }
         return {
             sessionId,
-            history: this.sessions.get(sessionId) || [],
+            history,
         };
     }
-    clearSession(sessionId) {
+    async clearSession(sessionId) {
         this.sessions.delete(sessionId);
         this.shortTermMemory.delete(sessionId);
+        const tripId = this.extractTripIdFromSession(sessionId);
+        if (tripId) {
+            await this.memoryService.clearSessionMessages(tripId, sessionId);
+        }
         return {
             success: true,
             sessionId,

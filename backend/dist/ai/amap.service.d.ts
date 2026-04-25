@@ -31,6 +31,10 @@ export declare class AmapService {
         address: string | undefined;
         location: string | undefined;
         tel: string | undefined;
+        rating: number | undefined;
+        reviews: number | undefined;
+        rankScore: number;
+        rankReason: string;
     }[]>;
     compareRoutes(origin: string, destination: string, city?: string): Promise<{
         origin: string;

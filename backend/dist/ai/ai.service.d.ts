@@ -13,6 +13,12 @@ type AgentContext = Record<string, unknown> & {
     tripName?: string;
     startDate?: string;
     endDate?: string;
+    preferences?: {
+        pace?: string;
+        interests?: string[];
+        budgetMin?: number;
+        budgetMax?: number;
+    };
     origin?: string;
     destinationAddress?: string;
 };
@@ -31,6 +37,15 @@ export declare class AiService {
     private readonly sessions;
     private readonly shortTermMemory;
     constructor(amapService: AmapService, llmService: LlmService, serpapiHotelsService: SerpapiHotelsService, memoryService: MemoryService);
+    private resolveSessionId;
+    private extractTripIdFromSession;
+    private resolveTripId;
+    private hydrateSessionHistory;
+    private persistSessionExchange;
+    private logQuality;
+    private syncContextToMemory;
+    private buildMemorySection;
+    private buildSystemPrompt;
     chat(message: string, sessionId?: string, context?: AgentContext): Promise<{
         sessionId: string;
         reply: string;
@@ -50,6 +65,32 @@ export declare class AiService {
         maxPrice?: number;
         maxResults?: number;
     }): Promise<{
+        configured: boolean;
+        reason: string;
+        destination: string;
+        checkInDate: string;
+        checkOutDate: string;
+        currency: string;
+        hotels: {
+            id: string;
+            name: string;
+            address?: string;
+            district?: string;
+            latitude?: number;
+            longitude?: number;
+            rating?: number;
+            reviews?: number;
+            nightlyPrice?: number;
+            totalPrice?: number;
+            currency: string;
+            source?: string;
+            sourceUrl?: string;
+            transportMinutes?: number;
+            rankScore: number;
+            rankReason: string;
+        }[];
+        strategy?: undefined;
+    } | {
         configured: boolean;
         reason: string;
         hotels: {
@@ -83,8 +124,6 @@ export declare class AiService {
         currency: string;
         strategy: string;
         hotels: {
-            rankReason: string;
-            rankScore: number;
             id: string;
             name: string;
             address?: string;
@@ -99,17 +138,39 @@ export declare class AiService {
             source?: string;
             sourceUrl?: string;
             transportMinutes?: number;
+            rankScore: number;
+            rankReason: string;
         }[];
         reason?: undefined;
     }>;
-    getHistory(sessionId: string): {
+    getQualitySummary(tripId: string): Promise<{
+        total: number;
+        fallbackCount: number;
+        fallbackRate: number;
+        avgToolCalls: number;
+        avgLatencyMs: number;
+        latest: {
+            sessionId: string;
+            messageLength: number;
+            responseLength: number;
+            toolCallCount: number;
+            toolNames: string[];
+            toolDurationsMs: number[];
+            totalLatencyMs: number;
+            llmCalls: number;
+            fallbackTriggered: boolean;
+            error?: string;
+            createdAt: string;
+        }[];
+    }>;
+    getHistory(sessionId: string): Promise<{
         sessionId: string;
         history: SessionMessage[];
-    };
-    clearSession(sessionId: string): {
+    }>;
+    clearSession(sessionId: string): Promise<{
         success: boolean;
         sessionId: string;
-    };
+    }>;
     recordPreference(tripId: string, key: string, value: unknown, sessionId?: string): Promise<void>;
     recordDecision(tripId: string, decision: string, details: unknown, sessionId?: string): Promise<void>;
     getShortTermMemory(sessionId: string): {
@@ -213,6 +274,10 @@ export declare class AiService {
             address: string | undefined;
             location: string | undefined;
             tel: string | undefined;
+            rating: number | undefined;
+            reviews: number | undefined;
+            rankScore: number;
+            rankReason: string;
         }[];
         hotels: {
             id: string;
@@ -231,23 +296,6 @@ export declare class AiService {
             transportMinutes?: number;
             rankScore: number;
             rankReason: string;
-        }[] | {
-            rankReason: string;
-            rankScore: number;
-            id: string;
-            name: string;
-            address?: string;
-            district?: string;
-            latitude?: number;
-            longitude?: number;
-            rating?: number;
-            reviews?: number;
-            nightlyPrice?: number;
-            totalPrice?: number;
-            currency: string;
-            source?: string;
-            sourceUrl?: string;
-            transportMinutes?: number;
         }[];
     }>;
     buildOnTripSnapshot(trip: any): Promise<{
