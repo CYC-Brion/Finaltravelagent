@@ -28,6 +28,14 @@ export class WorkspaceController {
     return this.workspaceService.moveActivity(activityId, body.targetDayNumber, body.targetIndex);
   }
 
+  @Post("activities/:activityId/swap")
+  swapActivities(
+    @Param("activityId") activityId: string,
+    @Body() body: { targetActivityId: string },
+  ) {
+    return this.workspaceService.swapActivities(activityId, body.targetActivityId);
+  }
+
   @Post("activities/:activityId/votes")
   voteOnActivity(@Param("activityId") activityId: string, @Body() body: { direction: 1 | -1 }) {
     return this.workspaceService.vote(activityId, body.direction);

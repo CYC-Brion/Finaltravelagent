@@ -364,6 +364,54 @@ export const mockService = {
     }
     throw new Error("Activity not found");
   },
+  async swapActivities(activityId: string, targetActivityId: string) {
+    await wait();
+    const db = getDb();
+    for (const trip of db.trips) {
+      let sourceDay: Trip["itinerary"][number] | null = null;
+      let targetDay: Trip["itinerary"][number] | null = null;
+      let sourceIndex = -1;
+      let targetIndex = -1;
+
+      for (const day of trip.itinerary) {
+        const sIndex = day.activities.findIndex((item) => item.id === activityId);
+        if (sIndex !== -1) {
+          sourceDay = day;
+          sourceIndex = sIndex;
+        }
+
+        const tIndex = day.activities.findIndex((item) => item.id === targetActivityId);
+        if (tIndex !== -1) {
+          targetDay = day;
+          targetIndex = tIndex;
+        }
+      }
+
+      if (!sourceDay || !targetDay || sourceIndex === -1 || targetIndex === -1) {
+        continue;
+      }
+
+      const sourceActivity = sourceDay.activities[sourceIndex];
+      const targetActivity = targetDay.activities[targetIndex];
+
+      sourceDay.activities[sourceIndex] = targetActivity;
+      targetDay.activities[targetIndex] = sourceActivity;
+      sourceDay.activities[sourceIndex].dayNumber = sourceDay.day;
+      targetDay.activities[targetIndex].dayNumber = targetDay.day;
+
+      trip.activityFeed.unshift({
+        id: createId("feed"),
+        user: defaultUser.name,
+        action: `swapped ${sourceActivity.name} with ${targetActivity.name}`,
+        time: "just now",
+      });
+
+      setDb(db);
+      return { sourceActivity: sourceDay.activities[sourceIndex], targetActivity: targetDay.activities[targetIndex] };
+    }
+
+    throw new Error("Activities not found");
+  },
   async vote(activityId: string, direction: 1 | -1) {
     await wait();
     const db = getDb();

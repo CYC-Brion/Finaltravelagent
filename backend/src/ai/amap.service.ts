@@ -261,16 +261,33 @@ export class AmapService {
         address?: string;
         location?: string;
         tel?: string;
+        biz_ext?: { rating?: string; cost?: string };
+        importance?: string;
       }>;
     };
 
-    return (data.pois || []).slice(0, 5).map((poi) => ({
-      name: poi.name,
-      type: poi.type,
-      address: poi.address,
-      location: poi.location,
-      tel: poi.tel,
-    }));
+    return (data.pois || [])
+      .map((poi) => {
+        const rating = Number(poi.biz_ext?.rating || 0);
+        const popularity = Number(poi.importance || 0);
+        const rankScore = Number((rating * 20 + popularity).toFixed(2));
+        return {
+          name: poi.name,
+          type: poi.type,
+          address: poi.address,
+          location: poi.location,
+          tel: poi.tel,
+          rating: Number.isFinite(rating) && rating > 0 ? rating : undefined,
+          reviews: Number.isFinite(popularity) && popularity > 0 ? popularity : undefined,
+          rankScore,
+          rankReason:
+            Number.isFinite(rating) && rating > 0
+              ? `评分${rating.toFixed(1)}，热度${popularity || 0}`
+              : `按热度排序（${popularity || 0}）`,
+        };
+      })
+      .sort((a, b) => (b.rankScore || 0) - (a.rankScore || 0))
+      .slice(0, 8);
   }
 
   async compareRoutes(origin: string, destination: string, city?: string) {

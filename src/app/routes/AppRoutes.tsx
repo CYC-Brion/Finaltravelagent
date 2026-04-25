@@ -14,7 +14,7 @@ import { CommunityPage } from "../screens/CommunityPage";
 import { HotelRecommendations } from "../screens/HotelRecommendations";
 import { LoginPage } from "../screens/auth/LoginPage";
 import { AcceptInvitationPage } from "../screens/auth/AcceptInvitationPage";
-import { useAddComment, useAddDiaryEntry, useAddExpense, useAiDraft, useCheckInActivity, useCommunityPosts, useCreateActivity, useCreateTrip, useGenerateDraft, useHotelRecommendations, useMarkSettlementPaid, useMoveActivity, useOnTripToday, usePublishTrip, useRespondToSuggestion, useTrip, useTrips, useUpdateActivity, useVoteOnActivity } from "../hooks/useTrips";
+import { useAddComment, useAddDiaryEntry, useAddExpense, useAiDraft, useCheckInActivity, useCommunityPosts, useCreateActivity, useCreateTrip, useGenerateDraft, useHotelRecommendations, useMarkSettlementPaid, useMoveActivity, useOnTripToday, usePublishTrip, useRespondToSuggestion, useSwapActivity, useTrip, useTrips, useUpdateActivity, useVoteOnActivity } from "../hooks/useTrips";
 import type { CreateTripInput, TripStatus } from "@/domain/types";
 import { travelApi } from "@/lib/api/travelApi";
 
@@ -139,11 +139,20 @@ function WorkspacePage() {
   const { tripId = "" } = useParams();
   const tripQuery = useTrip(tripId);
   const aiDraftQuery = useAiDraft(tripId);
+  const workspaceHotelQuery = useHotelRecommendations({
+    destination: tripQuery.data?.destination,
+    checkInDate: tripQuery.data?.startDate,
+    checkOutDate: tripQuery.data?.endDate,
+    adults: Math.max(1, tripQuery.data?.members?.length || 2),
+    minRating: 4,
+    maxResults: 6,
+  });
   const voteMutation = useVoteOnActivity(tripId);
   const commentMutation = useAddComment(tripId);
   const createActivityMutation = useCreateActivity(tripId);
   const updateActivityMutation = useUpdateActivity(tripId);
   const moveActivityMutation = useMoveActivity(tripId);
+  const swapActivityMutation = useSwapActivity(tripId);
 
   if (!tripQuery.data) return <div className="p-10">Loading workspace...</div>;
 
@@ -157,12 +166,19 @@ function WorkspacePage() {
       onMoveActivity={(activityId, targetDayNumber, targetIndex) =>
         moveActivityMutation.mutate({ activityId, targetDayNumber, targetIndex })
       }
-      hotelRecommendations={aiDraftQuery.data?.aiDraftMeta.hotels || []}
+      onSwapActivity={(activityId, targetActivityId) =>
+        swapActivityMutation.mutate({ activityId, targetActivityId })
+      }
+      hotelRecommendations={
+        (aiDraftQuery.data?.aiDraftMeta.hotels || []).length > 0
+          ? aiDraftQuery.data?.aiDraftMeta.hotels || []
+          : workspaceHotelQuery.data?.hotels || []
+      }
       voting={voteMutation.isPending}
       commenting={commentMutation.isPending}
       creatingActivity={createActivityMutation.isPending}
       updatingActivity={updateActivityMutation.isPending}
-      movingActivity={moveActivityMutation.isPending}
+      movingActivity={moveActivityMutation.isPending || swapActivityMutation.isPending}
       onNavigate={(page) => {
         if (page === "ai") navigate(`/trips/${tripId}/ai`);
         if (page === "ontrip") navigate(`/trips/${tripId}/on-trip`);

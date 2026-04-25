@@ -115,6 +115,17 @@ export function useMoveActivity(tripId: string) {
   });
 }
 
+export function useSwapActivity(tripId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ activityId, targetActivityId }: { activityId: string; targetActivityId: string }) =>
+      travelApi.swapActivities(activityId, targetActivityId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["trips", tripId] });
+    },
+  });
+}
+
 export function useVoteOnActivity(tripId: string) {
   const queryClient = useQueryClient();
   return useMutation({

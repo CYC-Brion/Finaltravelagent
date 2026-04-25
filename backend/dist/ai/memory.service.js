@@ -16,7 +16,27 @@ let MemoryService = class MemoryService {
     constructor() {
         this.prisma = new client_1.PrismaClient();
     }
+    async shouldSkipDuplicate(tripId, memoryType, content) {
+        const existing = await this.prisma.tripMemory.findMany({
+            where: { tripId, memoryType },
+            orderBy: { createdAt: "desc" },
+            take: 50,
+        });
+        return existing.some((item) => {
+            try {
+                const parsed = JSON.parse(item.content);
+                return parsed.key === content.key && JSON.stringify(parsed.value) === JSON.stringify(content.value);
+            }
+            catch {
+                return false;
+            }
+        });
+    }
     async addMemory(tripId, memoryType, content, source, userId) {
+        const skip = await this.shouldSkipDuplicate(tripId, memoryType, content);
+        if (skip) {
+            return;
+        }
         await this.prisma.tripMemory.create({
             data: {
                 tripId,
@@ -29,7 +49,12 @@ let MemoryService = class MemoryService {
     }
     async getMemories(tripId) {
         const memories = await this.prisma.tripMemory.findMany({
-            where: { tripId },
+            where: {
+                tripId,
+                memoryType: {
+                    in: ["preference", "itinerary_change", "constraint"],
+                },
+            },
             orderBy: { updatedAt: "desc" },
         });
         return memories.map((m) => ({
@@ -71,6 +96,100 @@ let MemoryService = class MemoryService {
         await this.prisma.tripMemory.deleteMany({
             where: { tripId },
         });
+    }
+    async appendSessionMessages(tripId, messages) {
+        if (!tripId || messages.length === 0) {
+            return;
+        }
+        await this.prisma.tripMemory.createMany({
+            data: messages.map((item) => ({
+                tripId,
+                userId: null,
+                memoryType: "session_message",
+                source: "user_feedback",
+                content: JSON.stringify({
+                    sessionId: item.sessionId,
+                    role: item.role,
+                    content: item.content,
+                    timestamp: item.timestamp,
+                }),
+            })),
+        });
+    }
+    async loadSessionMessages(tripId, sessionId, limit = 40) {
+        const rows = await this.prisma.tripMemory.findMany({
+            where: {
+                tripId,
+                memoryType: "session_message",
+                content: { contains: `\"sessionId\":\"${sessionId}\"` },
+            },
+            orderBy: { createdAt: "asc" },
+            take: Math.max(1, limit),
+        });
+        const parsed = rows
+            .map((row) => {
+            try {
+                return JSON.parse(row.content);
+            }
+            catch {
+                return null;
+            }
+        })
+            .filter((item) => Boolean(item))
+            .map((item) => ({ role: item.role, content: item.content, timestamp: item.timestamp }));
+        return parsed;
+    }
+    async clearSessionMessages(tripId, sessionId) {
+        await this.prisma.tripMemory.deleteMany({
+            where: {
+                tripId,
+                memoryType: "session_message",
+                content: { contains: `\"sessionId\":\"${sessionId}\"` },
+            },
+        });
+    }
+    async addQualityLog(tripId, log) {
+        await this.prisma.tripMemory.create({
+            data: {
+                tripId,
+                userId: null,
+                memoryType: "quality_log",
+                source: "ai_suggestion",
+                content: JSON.stringify(log),
+            },
+        });
+    }
+    async getQualitySummary(tripId, limit = 200) {
+        const rows = await this.prisma.tripMemory.findMany({
+            where: {
+                tripId,
+                memoryType: "quality_log",
+            },
+            orderBy: { createdAt: "desc" },
+            take: Math.max(1, limit),
+        });
+        const logs = rows
+            .map((row) => {
+            try {
+                return JSON.parse(row.content);
+            }
+            catch {
+                return null;
+            }
+        })
+            .filter((item) => Boolean(item));
+        const total = logs.length;
+        const fallbackCount = logs.filter((item) => item.fallbackTriggered).length;
+        const avgToolCalls = total > 0 ? logs.reduce((sum, item) => sum + item.toolCallCount, 0) / total : 0;
+        const avgLatencyMs = total > 0 ? logs.reduce((sum, item) => sum + item.totalLatencyMs, 0) / total : 0;
+        return {
+            total,
+            fallbackCount,
+            fallbackRate: total > 0 ? Number((fallbackCount / total).toFixed(3)) : 0,
+            avgToolCalls: Number(avgToolCalls.toFixed(2)),
+            avgLatencyMs: Number(avgLatencyMs.toFixed(2)),
+            latest: logs.slice(0, 20),
+        };
     }
 };
 exports.MemoryService = MemoryService;

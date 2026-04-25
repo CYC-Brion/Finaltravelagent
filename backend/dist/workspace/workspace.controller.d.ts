@@ -19,10 +19,16 @@ export declare class WorkspaceController {
         };
         comments: never[];
     } | null;
-    updateActivity(activityId: string, body: Record<string, unknown>): {
-        trip: any;
-        day: any;
-        activity: any;
+    updateActivity(activityId: string, body: Record<string, unknown>): any;
+    moveActivity(activityId: string, body: {
+        targetDayNumber: number;
+        targetIndex?: number;
+    }): any;
+    swapActivities(activityId: string, body: {
+        targetActivityId: string;
+    }): {
+        sourceActivity: any;
+        targetActivity: any;
     } | null;
     voteOnActivity(activityId: string, body: {
         direction: 1 | -1;

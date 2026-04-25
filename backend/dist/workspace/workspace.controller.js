@@ -28,6 +28,12 @@ let WorkspaceController = class WorkspaceController {
     updateActivity(activityId, body) {
         return this.workspaceService.updateActivity(activityId, body);
     }
+    moveActivity(activityId, body) {
+        return this.workspaceService.moveActivity(activityId, body.targetDayNumber, body.targetIndex);
+    }
+    swapActivities(activityId, body) {
+        return this.workspaceService.swapActivities(activityId, body.targetActivityId);
+    }
     voteOnActivity(activityId, body) {
         return this.workspaceService.vote(activityId, body.direction);
     }
@@ -65,6 +71,22 @@ __decorate([
     __metadata("design:paramtypes", [String, Object]),
     __metadata("design:returntype", void 0)
 ], WorkspaceController.prototype, "updateActivity", null);
+__decorate([
+    (0, common_1.Post)("activities/:activityId/move"),
+    __param(0, (0, common_1.Param)("activityId")),
+    __param(1, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, Object]),
+    __metadata("design:returntype", void 0)
+], WorkspaceController.prototype, "moveActivity", null);
+__decorate([
+    (0, common_1.Post)("activities/:activityId/swap"),
+    __param(0, (0, common_1.Param)("activityId")),
+    __param(1, (0, common_1.Body)()),
+    __metadata("design:type", Function),
+    __metadata("design:paramtypes", [String, Object]),
+    __metadata("design:returntype", void 0)
+], WorkspaceController.prototype, "swapActivities", null);
 __decorate([
     (0, common_1.Post)("activities/:activityId/votes"),
     __param(0, (0, common_1.Param)("activityId")),

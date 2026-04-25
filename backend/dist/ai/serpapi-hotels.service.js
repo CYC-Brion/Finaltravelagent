@@ -11,6 +11,9 @@ const common_1 = require("@nestjs/common");
 const CITY_CENTER = {
     北京: { lat: 39.9042, lon: 116.4074, district: "东城区" },
     上海: { lat: 31.2304, lon: 121.4737, district: "黄浦区" },
+    东京: { lat: 35.6762, lon: 139.6503, district: "千代田区" },
+    首尔: { lat: 37.5665, lon: 126.978, district: "中区" },
+    新加坡: { lat: 1.3521, lon: 103.8198, district: "中心区" },
 };
 let SerpapiHotelsService = class SerpapiHotelsService {
     constructor() {
@@ -24,18 +27,22 @@ let SerpapiHotelsService = class SerpapiHotelsService {
         return Boolean(this.apiKey);
     }
     async searchHotels(input) {
-        if (!this.apiKey) {
-            return {
-                configured: false,
-                reason: "SERPAPI_API_KEY is not configured",
-                hotels: [],
-            };
-        }
         const destination = this.normalizeDestination(input.destination);
         const checkInDate = input.checkInDate || this.defaultCheckIn();
         const checkOutDate = input.checkOutDate || this.defaultCheckOut(checkInDate);
         const adults = Math.max(1, Number(input.adults || 2));
         const currency = (input.currency || this.defaultCurrency || "CNY").toUpperCase();
+        if (!this.apiKey) {
+            return {
+                configured: false,
+                reason: "SERPAPI_API_KEY is not configured",
+                destination,
+                checkInDate,
+                checkOutDate,
+                currency,
+                hotels: this.buildFallbackHotels(destination, currency),
+            };
+        }
         const url = new URL(this.searchUrl);
         url.searchParams.set("engine", "google_hotels");
         url.searchParams.set("q", `${destination} 酒店`);
@@ -83,6 +90,7 @@ let SerpapiHotelsService = class SerpapiHotelsService {
             ...hotel,
             rankReason: this.buildRankReason(hotel),
         }));
+        const hotels = ranked.length > 0 ? ranked : this.buildFallbackHotels(destination, currency).slice(0, maxResults);
         return {
             configured: true,
             destination,
@@ -90,15 +98,84 @@ let SerpapiHotelsService = class SerpapiHotelsService {
             checkOutDate,
             currency,
             strategy: "value-first",
-            hotels: ranked,
+            hotels,
         };
     }
     normalizeDestination(destination) {
         const value = (destination || "").trim();
+        if (!value) {
+            return "北京";
+        }
         if (value.includes("上海") || value.toLowerCase().includes("shanghai")) {
             return "上海";
         }
-        return "北京";
+        if (value.includes("北京") || value.toLowerCase().includes("beijing")) {
+            return "北京";
+        }
+        if (value.includes("东京") || value.toLowerCase().includes("tokyo")) {
+            return "东京";
+        }
+        if (value.includes("首尔") || value.toLowerCase().includes("seoul")) {
+            return "首尔";
+        }
+        if (value.includes("新加坡") || value.toLowerCase().includes("singapore")) {
+            return "新加坡";
+        }
+        return value;
+    }
+    buildFallbackHotels(destination, currency) {
+        const centerDistrict = CITY_CENTER[destination]?.district || "中心区";
+        const rows = [
+            {
+                id: `fallback_${destination}_1`,
+                name: `${destination} Central Grand Hotel`,
+                address: `${destination}${centerDistrict}`,
+                district: centerDistrict,
+                rating: 4.6,
+                reviews: 1280,
+                nightlyPrice: 880,
+                totalPrice: 1760,
+                currency,
+                source: "FallbackCatalog",
+                sourceUrl: undefined,
+                transportMinutes: 16,
+                rankScore: 88,
+                rankReason: "高评分、交通便利、性价比均衡",
+            },
+            {
+                id: `fallback_${destination}_2`,
+                name: `${destination} Riverside Select Hotel`,
+                address: `${destination}${centerDistrict}`,
+                district: centerDistrict,
+                rating: 4.4,
+                reviews: 960,
+                nightlyPrice: 690,
+                totalPrice: 1380,
+                currency,
+                source: "FallbackCatalog",
+                sourceUrl: undefined,
+                transportMinutes: 22,
+                rankScore: 82,
+                rankReason: "价格更友好，适合预算优先团队",
+            },
+            {
+                id: `fallback_${destination}_3`,
+                name: `${destination} Premium Stay`,
+                address: `${destination}${centerDistrict}`,
+                district: centerDistrict,
+                rating: 4.8,
+                reviews: 700,
+                nightlyPrice: 1180,
+                totalPrice: 2360,
+                currency,
+                source: "FallbackCatalog",
+                sourceUrl: undefined,
+                transportMinutes: 12,
+                rankScore: 86,
+                rankReason: "评分领先，适合舒适型出行",
+            },
+        ];
+        return rows;
     }
     normalizeHotel(row, index, destination, currency) {
         const name = String(row.name || "").trim();

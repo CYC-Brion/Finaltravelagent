@@ -38,6 +38,15 @@ export declare class SerpapiHotelsService {
     searchHotels(input: SearchHotelsInput): Promise<{
         configured: boolean;
         reason: string;
+        destination: string;
+        checkInDate: string;
+        checkOutDate: string;
+        currency: string;
+        hotels: HotelResult[];
+        strategy?: undefined;
+    } | {
+        configured: boolean;
+        reason: string;
         hotels: HotelResult[];
         destination?: undefined;
         checkInDate?: undefined;
@@ -51,27 +60,11 @@ export declare class SerpapiHotelsService {
         checkOutDate: string;
         currency: string;
         strategy: string;
-        hotels: {
-            rankReason: string;
-            rankScore: number;
-            id: string;
-            name: string;
-            address?: string;
-            district?: string;
-            latitude?: number;
-            longitude?: number;
-            rating?: number;
-            reviews?: number;
-            nightlyPrice?: number;
-            totalPrice?: number;
-            currency: string;
-            source?: string;
-            sourceUrl?: string;
-            transportMinutes?: number;
-        }[];
+        hotels: HotelResult[];
         reason?: undefined;
     }>;
     private normalizeDestination;
+    private buildFallbackHotels;
     private normalizeHotel;
     private computeScore;
     private buildRankReason;

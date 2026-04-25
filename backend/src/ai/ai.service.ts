@@ -68,6 +68,100 @@ export class AiService {
     return `session_${Date.now()}`;
   }
 
+  private extractTripIdFromSession(sessionId: string) {
+    if (!sessionId.startsWith("trip_")) {
+      return undefined;
+    }
+    const value = sessionId.slice(5);
+    return value || undefined;
+  }
+
+  private resolveTripId(sessionId: string, context: AgentContext = {}) {
+    return context.tripId || this.extractTripIdFromSession(sessionId);
+  }
+
+  private async hydrateSessionHistory(activeSessionId: string, context: AgentContext = {}) {
+    const existing = this.sessions.get(activeSessionId) || [];
+    if (existing.length > 0) {
+      return existing;
+    }
+
+    const tripId = this.resolveTripId(activeSessionId, context);
+    if (!tripId) {
+      return existing;
+    }
+
+    const persisted = await this.memoryService.loadSessionMessages(tripId, activeSessionId, 60);
+    if (persisted.length > 0) {
+      this.sessions.set(activeSessionId, persisted);
+      return persisted;
+    }
+
+    return existing;
+  }
+
+  private async persistSessionExchange(
+    activeSessionId: string,
+    context: AgentContext,
+    userMessage: string,
+    assistantMessage: string,
+  ) {
+    const tripId = this.resolveTripId(activeSessionId, context);
+    if (!tripId) {
+      return;
+    }
+
+    const now = new Date();
+    await this.memoryService.appendSessionMessages(tripId, [
+      {
+        sessionId: activeSessionId,
+        role: "user",
+        content: userMessage,
+        timestamp: now.toISOString(),
+      },
+      {
+        sessionId: activeSessionId,
+        role: "assistant",
+        content: assistantMessage,
+        timestamp: new Date(now.getTime() + 1).toISOString(),
+      },
+    ]);
+  }
+
+  private async logQuality(
+    activeSessionId: string,
+    context: AgentContext,
+    payload: {
+      messageLength: number;
+      responseLength: number;
+      toolNames: string[];
+      toolDurationsMs: number[];
+      llmCalls: number;
+      fallbackTriggered: boolean;
+      totalLatencyMs: number;
+      error?: string;
+    },
+  ) {
+    const tripId = this.resolveTripId(activeSessionId, context);
+    if (!tripId) {
+      return;
+    }
+
+    await this.memoryService.addQualityLog(tripId, {
+      sessionId: activeSessionId,
+      messageLength: payload.messageLength,
+      responseLength: payload.responseLength,
+      toolCallCount: payload.toolNames.length,
+      toolNames: payload.toolNames,
+      toolDurationsMs: payload.toolDurationsMs,
+      totalLatencyMs: payload.totalLatencyMs,
+      llmCalls: payload.llmCalls,
+      fallbackTriggered: payload.fallbackTriggered,
+      error: payload.error,
+      createdAt: new Date().toISOString(),
+    });
+  }
+
   private async syncContextToMemory(context: AgentContext = {}, sessionId?: string): Promise<void> {
     if (!context.tripId) {
       return;
@@ -186,7 +280,12 @@ export class AiService {
 
   async chat(message: string, sessionId?: string, context: AgentContext = {}) {
     const activeSessionId = this.resolveSessionId(sessionId, context);
-    const history = this.sessions.get(activeSessionId) || [];
+    const history = await this.hydrateSessionHistory(activeSessionId, context);
+    const startedAt = Date.now();
+    const toolNames: string[] = [];
+    const toolDurationsMs: number[] = [];
+    let llmCalls = 0;
+    let fallbackTriggered = false;
 
     await this.syncContextToMemory(context, activeSessionId);
     const memorySection = await this.buildMemorySection(activeSessionId, context);
@@ -208,6 +307,7 @@ export class AiService {
     let toolCallCount = 0;
 
     while (toolCallCount < maxToolCalls) {
+      llmCalls += 1;
       const { content, toolCalls } = await this.llmService.chat(
         llmMessages,
         [...amapTools, ...serpapiHotelTools],
@@ -223,6 +323,16 @@ export class AiService {
           { role: "assistant", content: reply, timestamp: new Date().toISOString() },
         ];
         this.sessions.set(activeSessionId, nextHistory);
+        await this.persistSessionExchange(activeSessionId, context, message, reply);
+        await this.logQuality(activeSessionId, context, {
+          messageLength: message.length,
+          responseLength: reply.length,
+          toolNames,
+          toolDurationsMs,
+          llmCalls,
+          fallbackTriggered,
+          totalLatencyMs: Date.now() - startedAt,
+        });
 
         return {
           sessionId: activeSessionId,
@@ -234,6 +344,7 @@ export class AiService {
       }
 
       if (!toolCalls || toolCalls.length === 0) {
+        fallbackTriggered = true;
         const reply = this.buildFallbackReply(message, toolResults, context);
         const nextHistory: SessionMessage[] = [
           ...history,
@@ -241,6 +352,16 @@ export class AiService {
           { role: "assistant", content: reply, timestamp: new Date().toISOString() },
         ];
         this.sessions.set(activeSessionId, nextHistory);
+        await this.persistSessionExchange(activeSessionId, context, message, reply);
+        await this.logQuality(activeSessionId, context, {
+          messageLength: message.length,
+          responseLength: reply.length,
+          toolNames,
+          toolDurationsMs,
+          llmCalls,
+          fallbackTriggered,
+          totalLatencyMs: Date.now() - startedAt,
+        });
 
         return {
           sessionId: activeSessionId,
@@ -254,7 +375,10 @@ export class AiService {
       const toolCallsWithResults: Array<{ toolCall: ToolCall; result: unknown }> = [];
 
       for (const toolCall of toolCalls) {
+        const toolStarted = Date.now();
         const result = await this.executeToolCall(toolCall, context);
+        toolNames.push(toolCall.name);
+        toolDurationsMs.push(Date.now() - toolStarted);
         toolResults[toolCall.name] = result;
         toolCallsWithResults.push({ toolCall, result });
       }
@@ -288,6 +412,17 @@ export class AiService {
       { role: "assistant", content: reply, timestamp: new Date().toISOString() },
     ];
     this.sessions.set(activeSessionId, nextHistory);
+    fallbackTriggered = true;
+    await this.persistSessionExchange(activeSessionId, context, message, reply);
+    await this.logQuality(activeSessionId, context, {
+      messageLength: message.length,
+      responseLength: reply.length,
+      toolNames,
+      toolDurationsMs,
+      llmCalls,
+      fallbackTriggered,
+      totalLatencyMs: Date.now() - startedAt,
+    });
 
     return {
       sessionId: activeSessionId,
@@ -313,7 +448,12 @@ export class AiService {
     } = callbacks;
 
     const activeSessionId = this.resolveSessionId(sessionId, context);
-    const history = this.sessions.get(activeSessionId) || [];
+    const history = await this.hydrateSessionHistory(activeSessionId, context);
+    const startedAt = Date.now();
+    const toolNames: string[] = [];
+    const toolDurationsMs: number[] = [];
+    let llmCalls = 0;
+    let fallbackTriggered = false;
 
     await this.syncContextToMemory(context, activeSessionId);
     const memorySection = await this.buildMemorySection(activeSessionId, context);
@@ -336,6 +476,7 @@ export class AiService {
 
     try {
       while (toolCallCount < maxToolCalls) {
+        llmCalls += 1;
         const { content, toolCalls } = await this.llmService.chat(
           llmMessages,
           [...amapTools, ...serpapiHotelTools],
@@ -359,12 +500,23 @@ export class AiService {
             { role: "assistant", content: content, timestamp: new Date().toISOString() },
           ];
           this.sessions.set(activeSessionId, nextHistory);
+          await this.persistSessionExchange(activeSessionId, context, message, content);
+          await this.logQuality(activeSessionId, context, {
+            messageLength: message.length,
+            responseLength: content.length,
+            toolNames,
+            toolDurationsMs,
+            llmCalls,
+            fallbackTriggered,
+            totalLatencyMs: Date.now() - startedAt,
+          });
 
           onDone?.(content, toolResults, nextHistory);
           return;
         }
 
         if (!toolCalls || toolCalls.length === 0) {
+          fallbackTriggered = true;
           const reply = this.buildFallbackReply(message, toolResults, context);
 
           // Stream fallback reply
@@ -382,6 +534,16 @@ export class AiService {
             { role: "assistant", content: reply, timestamp: new Date().toISOString() },
           ];
           this.sessions.set(activeSessionId, nextHistory);
+          await this.persistSessionExchange(activeSessionId, context, message, reply);
+          await this.logQuality(activeSessionId, context, {
+            messageLength: message.length,
+            responseLength: reply.length,
+            toolNames,
+            toolDurationsMs,
+            llmCalls,
+            fallbackTriggered,
+            totalLatencyMs: Date.now() - startedAt,
+          });
 
           onDone?.(reply, toolResults, nextHistory);
           return;
@@ -392,7 +554,10 @@ export class AiService {
           const args = JSON.parse(toolCall.arguments);
           onToolCall?.(toolCall.name, args);
 
+          const toolStarted = Date.now();
           const result = await this.executeToolCall(toolCall, context);
+          toolNames.push(toolCall.name);
+          toolDurationsMs.push(Date.now() - toolStarted);
           toolResults[toolCall.name] = result;
           onToolResult?.(toolCall.name, result);
         }
@@ -430,9 +595,30 @@ export class AiService {
         { role: "assistant", content: reply, timestamp: new Date().toISOString() },
       ];
       this.sessions.set(activeSessionId, nextHistory);
+      fallbackTriggered = true;
+      await this.persistSessionExchange(activeSessionId, context, message, reply);
+      await this.logQuality(activeSessionId, context, {
+        messageLength: message.length,
+        responseLength: reply.length,
+        toolNames,
+        toolDurationsMs,
+        llmCalls,
+        fallbackTriggered,
+        totalLatencyMs: Date.now() - startedAt,
+      });
 
       onDone?.(reply, toolResults, nextHistory);
     } catch (error) {
+      await this.logQuality(activeSessionId, context, {
+        messageLength: message.length,
+        responseLength: 0,
+        toolNames,
+        toolDurationsMs,
+        llmCalls,
+        fallbackTriggered: true,
+        totalLatencyMs: Date.now() - startedAt,
+        error: error instanceof Error ? error.message : "Unknown error",
+      });
       onError?.(error instanceof Error ? error.message : "Unknown error");
     }
   }
@@ -513,16 +699,37 @@ export class AiService {
     });
   }
 
-  getHistory(sessionId: string) {
+  async getQualitySummary(tripId: string) {
+    return this.memoryService.getQualitySummary(tripId, 300);
+  }
+
+  async getHistory(sessionId: string) {
+    let history = this.sessions.get(sessionId) || [];
+    if (history.length === 0) {
+      const tripId = this.extractTripIdFromSession(sessionId);
+      if (tripId) {
+        history = await this.memoryService.loadSessionMessages(tripId, sessionId, 60);
+        if (history.length > 0) {
+          this.sessions.set(sessionId, history);
+        }
+      }
+    }
+
     return {
       sessionId,
-      history: this.sessions.get(sessionId) || [],
+      history,
     };
   }
 
-  clearSession(sessionId: string) {
+  async clearSession(sessionId: string) {
     this.sessions.delete(sessionId);
     this.shortTermMemory.delete(sessionId);
+
+    const tripId = this.extractTripIdFromSession(sessionId);
+    if (tripId) {
+      await this.memoryService.clearSessionMessages(tripId, sessionId);
+    }
+
     return {
       success: true,
       sessionId,

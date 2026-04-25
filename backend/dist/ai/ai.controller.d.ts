@@ -16,6 +16,32 @@ export declare class AiController {
     }): Promise<{
         configured: boolean;
         reason: string;
+        destination: string;
+        checkInDate: string;
+        checkOutDate: string;
+        currency: string;
+        hotels: {
+            id: string;
+            name: string;
+            address?: string;
+            district?: string;
+            latitude?: number;
+            longitude?: number;
+            rating?: number;
+            reviews?: number;
+            nightlyPrice?: number;
+            totalPrice?: number;
+            currency: string;
+            source?: string;
+            sourceUrl?: string;
+            transportMinutes?: number;
+            rankScore: number;
+            rankReason: string;
+        }[];
+        strategy?: undefined;
+    } | {
+        configured: boolean;
+        reason: string;
         hotels: {
             id: string;
             name: string;
@@ -47,8 +73,6 @@ export declare class AiController {
         currency: string;
         strategy: string;
         hotels: {
-            rankReason: string;
-            rankScore: number;
             id: string;
             name: string;
             address?: string;
@@ -63,6 +87,8 @@ export declare class AiController {
             source?: string;
             sourceUrl?: string;
             transportMinutes?: number;
+            rankScore: number;
+            rankReason: string;
         }[];
         reason?: undefined;
     }>;
@@ -86,16 +112,36 @@ export declare class AiController {
         }[];
         timestamp: string;
     }>;
-    getHistory(sessionId: string): {
+    getHistory(sessionId: string): Promise<{
         sessionId: string;
         history: {
             role: "user" | "assistant";
             content: string;
             timestamp: string;
         }[];
-    };
-    clearSession(sessionId: string): {
+    }>;
+    getMetrics(tripId: string): Promise<{
+        total: number;
+        fallbackCount: number;
+        fallbackRate: number;
+        avgToolCalls: number;
+        avgLatencyMs: number;
+        latest: {
+            sessionId: string;
+            messageLength: number;
+            responseLength: number;
+            toolCallCount: number;
+            toolNames: string[];
+            toolDurationsMs: number[];
+            totalLatencyMs: number;
+            llmCalls: number;
+            fallbackTriggered: boolean;
+            error?: string;
+            createdAt: string;
+        }[];
+    }>;
+    clearSession(sessionId: string): Promise<{
         success: boolean;
         sessionId: string;
-    };
+    }>;
 }

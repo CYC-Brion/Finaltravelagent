@@ -192,7 +192,16 @@ export interface AgentChatResponse {
       humidity?: string;
       reportTime?: string;
     } | null;
-    attractions?: Array<{ name?: string; address?: string; type?: string }>;
+    attractions?: Array<{
+      name?: string;
+      address?: string;
+      type?: string;
+      location?: string;
+      rating?: number;
+      reviews?: number;
+      rankScore?: number;
+      rankReason?: string;
+    }>;
     restaurants?: Array<{ name?: string; address?: string; type?: string }>;
     routeComparison?: {
       recommended?: {
@@ -243,6 +252,10 @@ export interface AiDraftData {
       address?: string;
       type?: string;
       location?: string;
+      rating?: number;
+      reviews?: number;
+      rankScore?: number;
+      rankReason?: string;
     }>;
     hotels: HotelRecommendation[];
   };

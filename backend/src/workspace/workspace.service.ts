@@ -42,8 +42,73 @@ export class WorkspaceService {
   updateActivity(activityId: string, body: Record<string, unknown>) {
     const result = this.findActivity(activityId);
     if (!result) return null;
-    Object.assign(result.activity, body);
+
+    if (typeof body.time === "string") {
+      result.activity.time = body.time;
+    }
+    if (typeof body.name === "string") {
+      result.activity.name = body.name;
+    }
+    if (typeof body.location === "string") {
+      result.activity.location = body.location;
+    }
+    if (typeof body.duration === "string") {
+      result.activity.duration = body.duration;
+    }
+    if (typeof body.cost === "number") {
+      result.activity.cost = body.cost;
+    }
+
+    if (typeof body.dayNumber === "number" && Number.isFinite(body.dayNumber)) {
+      this.moveActivity(activityId, Number(body.dayNumber));
+    }
+
+    result.trip.activityFeed.unshift({
+      id: `feed_${Date.now()}`,
+      user: "Demo Traveler",
+      action: `edited ${result.activity.name}`,
+      time: "just now",
+    });
+
     return result.activity;
+  }
+
+  swapActivities(sourceActivityId: string, targetActivityId: string) {
+    if (sourceActivityId === targetActivityId) return null;
+
+    const source = this.findActivity(sourceActivityId);
+    const target = this.findActivity(targetActivityId);
+    if (!source || !target) return null;
+    if (source.trip.id !== target.trip.id) return null;
+
+    const sourceIndex = source.day.activities.findIndex((item: any) => item.id === sourceActivityId);
+    const targetIndex = target.day.activities.findIndex((item: any) => item.id === targetActivityId);
+    if (sourceIndex === -1 || targetIndex === -1) return null;
+
+    const sourceActivity = source.day.activities[sourceIndex];
+    const targetActivity = target.day.activities[targetIndex];
+
+    if (source.day.day === target.day.day) {
+      source.day.activities[sourceIndex] = targetActivity;
+      source.day.activities[targetIndex] = sourceActivity;
+    } else {
+      source.day.activities[sourceIndex] = targetActivity;
+      target.day.activities[targetIndex] = sourceActivity;
+      source.day.activities[sourceIndex].dayNumber = source.day.day;
+      target.day.activities[targetIndex].dayNumber = target.day.day;
+    }
+
+    source.trip.activityFeed.unshift({
+      id: `feed_${Date.now()}`,
+      user: "Demo Traveler",
+      action: `swapped ${sourceActivity.name} with ${targetActivity.name}`,
+      time: "just now",
+    });
+
+    return {
+      sourceActivity: source.day.activities[sourceIndex],
+      targetActivity: target.day.activities[targetIndex],
+    };
   }
 
   moveActivity(activityId: string, targetDayNumber: number, targetIndex?: number) {
